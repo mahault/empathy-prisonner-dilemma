@@ -63,8 +63,8 @@ class Sim:
         LOGGER.info(f"G = {step_results['exp_G']}")                      # Expected free energy
         LOGGER.info(f"q_pi = {step_results['exp_q_pi']}")                # Variational policy posterior
         LOGGER.info(f"p_u = {step_results['exp_p_u']}")                  # Action marginal
-        LOGGER.info(
-            f"chosen action: {self.config["actions"][int(step_action)]}")     # Chosen action (string mapping)
+        action_name = self.config["actions"][int(step_action)]
+        LOGGER.info(f"chosen action: {action_name}")     # Chosen action (string mapping)
         LOGGER.info("================")
     
     def _initialize_history(self) -> None:

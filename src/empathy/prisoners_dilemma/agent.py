@@ -1,14 +1,22 @@
 import logging
 import numpy as np
+from typing import Optional, Dict, Any, Tuple
 
-# from numpy.typing import ndarray
 from pymdp.agent import Agent
 from pymdp.control import sample_action
 from pymdp.maths import softmax
 from pymdp.utils import dirichlet_like
 
+from empathy.prisoners_dilemma.tom import TheoryOfMind, SocialEFE, OpponentInversion
+from empathy.prisoners_dilemma.tom.inversion import ObservationContext, GatedToM
+from empathy.prisoners_dilemma.tom.tom_core import softmax as tom_softmax
+
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
+
+# Prisoner's Dilemma constants
+COOPERATE = 0
+DEFECT = 1
 
 
 class EmpatheticAgent:
@@ -223,8 +231,282 @@ class EmpatheticAgent:
         # Expected value of VFE for empathetic agent
         # - Sum_i VFE * empathy_factor
         raise NotImplementedError
-    
+
     def _emotion_state(self):
-        # EFE/VFE -> emotion state 
+        # EFE/VFE -> emotion state
         raise NotImplementedError
+
+
+class ToMEmpatheticAgent:
+    """
+    Empathetic agent with proper Theory of Mind.
+
+    Replaces K-copy ensemble averaging with explicit ToM best-response prediction.
+
+    Key differences from EmpatheticAgent:
+    - Uses single self_agent and other_model instead of K copies
+    - empathy_factor is a scalar λ ∈ [0, 1] instead of a weight vector
+    - Computes social EFE: G_social = (1-λ) * G_self + λ * E[G_other]
+    - Includes particle-based opponent inference with reliability gating
+    """
+
+    def __init__(
+        self,
+        config: dict,
+        agent_num: int,
+        empathy_factor: float = 0.5,
+        beta_self: float = 4.0,
+        beta_other: float = 4.0,
+        use_inversion: bool = True,
+        n_particles: int = 30,
+        reliability_threshold: float = 0.5,
+    ) -> None:
+        """
+        Initialize ToM-based empathetic agent.
+
+        Args:
+            config: Configuration dictionary with A, B, C, D matrices
+            agent_num: Index of this agent (0 or 1)
+            empathy_factor: λ ∈ [0, 1], weight on opponent's EFE
+            beta_self: My action precision (inverse temperature)
+            beta_other: Opponent's action precision (for ToM prediction)
+            use_inversion: Whether to use particle-based opponent inference
+            n_particles: Number of particles for opponent inference
+            reliability_threshold: Threshold for trusting ToM predictions
+        """
+        self.agent_num = agent_num
+        self.empathy_factor = empathy_factor
+        self.beta_self = beta_self
+        self.beta_other = beta_other
+        self.use_inversion = use_inversion
+
+        # Extract matrices from config
+        self.A = config["A"][agent_num]
+        self.B = config["B"][agent_num]
+        self.C = config["C"][agent_num]
+        self.D = config["D"][agent_num]
+        self.policy_len = config.get("policy_len", 1)
+        self.learn = config.get("learn", False)
+
+        # Initialize self agent (my own generative model)
+        self.self_agent = Agent(
+            A=self.A, B=self.B, C=self.C, D=self.D,
+            policy_len=self.policy_len
+        )
+
+        # Initialize other_model (model of opponent)
+        # Use opponent's index to potentially get different priors
+        other_idx = 1 - agent_num
+        A_other = config["A"][other_idx] if len(config["A"]) > 1 else self.A
+        B_other = config["B"][other_idx] if len(config["B"]) > 1 else self.B
+        C_other = config["C"][other_idx] if len(config["C"]) > 1 else self.C
+        D_other = config["D"][other_idx] if len(config["D"]) > 1 else self.D
+
+        self.other_model = Agent(
+            A=A_other, B=B_other, C=C_other, D=D_other,
+            policy_len=self.policy_len
+        )
+
+        # Initialize Theory of Mind module
+        self.tom = TheoryOfMind(
+            other_model=self.other_model,
+            beta_other=beta_other,
+            use_pragmatic_value=True,
+            use_epistemic_value=False,
+        )
+
+        # Initialize Social EFE computer
+        self.social_efe = SocialEFE(
+            tom=self.tom,
+            empathy_factor=empathy_factor,
+            beta_self=beta_self,
+        )
+
+        # Initialize opponent inversion (particle-based)
+        if use_inversion:
+            self.inversion = OpponentInversion(
+                n_particles=n_particles,
+                reliability_threshold=reliability_threshold,
+            )
+            self.gated_tom = GatedToM(
+                tom=self.tom,
+                inversion=self.inversion,
+            )
+        else:
+            self.inversion = None
+            self.gated_tom = None
+
+        # Track history for context
+        self.action_history: list = []
+        self.observation_history: list = []
+        self.my_cumulative_payoff: float = 0.0
+        self.other_cumulative_payoff: float = 0.0
+
+        # Initialize observation
+        num_obs_categories = self.A[0][agent_num].shape[0]
+        sampled_obs = np.random.choice(
+            np.arange(num_obs_categories),
+            p=self.A[0] @ self.D[0]
+        )
+        self.o_init = int(sampled_obs)
+
+        # Track previous state belief for learning
+        self.qs_prev = None
+        self.last_action: Optional[int] = None
+        self.last_opponent_action: Optional[int] = None
+
+    def step(self, t: int, observation: int) -> Dict[str, Any]:
+        """
+        Execute one agent step using ToM-based action selection.
+
+        Args:
+            t: Current timestep
+            observation: Joint outcome observation (CC=0, CD=1, DC=2, DD=3)
+
+        Returns:
+            Dictionary with step results
+        """
+        if t == 0:
+            observation = self.o_init
+
+        # Store observation
+        self.observation_history.append(observation)
+
+        # 1. Extract opponent's action from observation (for inversion)
+        opponent_action = self._extract_opponent_action(observation, t)
+
+        # 2. Update opponent inversion (if enabled)
+        if self.use_inversion and t > 0 and opponent_action is not None:
+            context = self._build_observation_context(t)
+            self.inversion.update(opponent_action, context)
+            self.last_opponent_action = opponent_action
+
+        # 3. Infer my own state beliefs
+        self.self_agent.infer_states([observation])
+
+        # 4. Compute social EFE for each action
+        my_beliefs = None
+        if self.self_agent.qs is not None and len(self.self_agent.qs) > 0:
+            my_beliefs = self.self_agent.qs[0]
+        G_social, info = self.social_efe.compute_all_actions(my_beliefs=my_beliefs)
+
+        # 5. Select action using softmax over -β * G_social
+        q_action = tom_softmax(-G_social, temperature=1.0/self.beta_self)
+        action = int(np.random.choice([COOPERATE, DEFECT], p=q_action))
+
+        # 6. Store for next step
+        self.action_history.append(action)
+        self.last_action = action
+        self.qs_prev = self.self_agent.qs
+
+        # 7. Update cumulative payoffs
+        if t > 0 and observation is not None:
+            my_payoff, other_payoff = self._get_payoffs_from_observation(observation)
+            self.my_cumulative_payoff += my_payoff
+            self.other_cumulative_payoff += other_payoff
+
+        # Build results
+        step_results = {
+            "qs": self.self_agent.qs,
+            "G_social": G_social,
+            "q_action": q_action,
+            "exp_action": action,
+            "info": info,
+        }
+
+        # Add inversion info if enabled
+        if self.use_inversion:
+            step_results["inversion"] = {
+                "reliability": self.inversion.reliability(),
+                "type_distribution": self.inversion.get_type_distribution(),
+                "most_likely_type": self.inversion.get_most_likely_type(),
+            }
+
+        return step_results
+
+    def _extract_opponent_action(self, observation: int, t: int) -> Optional[int]:
+        """
+        Extract opponent's action from joint observation.
+
+        Observation encoding (from agent 0's perspective):
+        - CC=0: both cooperated → opponent cooperated (0)
+        - CD=1: I cooperated, they defected → opponent defected (1)
+        - DC=2: I defected, they cooperated → opponent cooperated (0)
+        - DD=3: both defected → opponent defected (1)
+        """
+        if t == 0 or observation is None:
+            return None
+
+        if self.agent_num == 0:
+            # Agent 0's perspective
+            if observation in [0, 2]:  # CC or DC
+                return COOPERATE
+            else:  # CD or DD
+                return DEFECT
+        else:
+            # Agent 1's perspective (observations are from agent 0's view)
+            if observation in [0, 1]:  # CC or CD
+                return COOPERATE
+            else:  # DC or DD
+                return DEFECT
+
+    def _build_observation_context(self, t: int) -> ObservationContext:
+        """Build context for opponent inversion update."""
+        return ObservationContext(
+            my_last_action=self.last_action,
+            their_last_action=self.last_opponent_action,
+            joint_outcome=self.observation_history[-1] if self.observation_history else None,
+            round_number=t,
+            my_cumulative_payoff=self.my_cumulative_payoff,
+            their_cumulative_payoff=self.other_cumulative_payoff,
+        )
+
+    def _get_payoffs_from_observation(self, observation: int) -> Tuple[float, float]:
+        """
+        Get payoffs from observation.
+
+        Standard PD payoffs:
+        - CC: (3, 3) - mutual cooperation
+        - CD: (0, 5) - sucker's payoff / temptation
+        - DC: (5, 0) - temptation / sucker's payoff
+        - DD: (1, 1) - mutual defection
+        """
+        payoff_map = {
+            0: (3, 3),  # CC
+            1: (0, 5),  # CD
+            2: (5, 0),  # DC
+            3: (1, 1),  # DD
+        }
+        my_payoff, other_payoff = payoff_map.get(observation, (0, 0))
+
+        # Swap if we're agent 1
+        if self.agent_num == 1:
+            my_payoff, other_payoff = other_payoff, my_payoff
+
+        return my_payoff, other_payoff
+
+    def reset(self):
+        """Reset agent state for new episode."""
+        self.action_history = []
+        self.observation_history = []
+        self.my_cumulative_payoff = 0.0
+        self.other_cumulative_payoff = 0.0
+        self.qs_prev = None
+        self.last_action = None
+        self.last_opponent_action = None
+
+        if self.use_inversion:
+            self.inversion.reset()
+
+    def get_reliability(self) -> float:
+        """Get current ToM reliability score."""
+        if self.use_inversion:
+            return self.inversion.reliability()
+        return 1.0  # Assume reliable if no inversion
+
+    def get_opponent_type_belief(self) -> Dict:
+        """Get current belief over opponent types."""
+        if self.use_inversion:
+            return self.inversion.get_type_distribution()
+        return {}
             
