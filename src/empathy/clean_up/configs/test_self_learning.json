@@ -1,0 +1,25 @@
+{
+  "name": "test_self_learning",
+  "description": "Quick test to verify Dirichlet self-learning works continuously",
+  "task": "clean_up",
+  "scenario": "default_truth",
+  "n_seeds": 1,
+  "tom_mode": "softmax",
+  "beta_tom": 2.0,
+  "debug_tom": false,
+  "max_steps": 50,
+  "save_batch_size": 10,
+  "n_agents": 1,
+  "dirichlet_initial_alpha": 1.0,
+  "particle_gamma_shape": 2.0,
+  "particle_gamma_scale": 2.0,
+  "eta_0": 0.1,
+  "T_a": 2.0,
+  "u_0": 0.05,
+  "kappa": 0.05,
+  "expected_episodes": 1,
+  "spawn_probs_true": {
+    "spawn_probs": [0.25, 0.15, 0.05, 0.0, 0.0]
+  },
+  "learning_rate": 1.0
+}

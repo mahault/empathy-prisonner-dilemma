@@ -1,0 +1,16 @@
+{
+  "name": "quick_test",
+  "task": "clean_up",
+  "scenario": "default_truth",
+  "n_seeds": 1,
+  "max_steps": 5,
+  "planning_horizon": 1,
+  "spawn_probs_true": {
+    "spawn_probs": [0.25, 0.15, 0.05, 0.0, 0.0]
+  },
+  "beliefs_expert_mismatched": {
+    "spawn_probs": [0.15, 0.10, 0.05, 0.0, 0.0],
+    "concentration": 100.0
+  },
+  "expected_episodes": 3
+}

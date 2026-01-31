@@ -1,0 +1,15 @@
+{
+  "name": "smoke",
+  "description": "Smoke diagnostic for clean_up task",
+  "tom_mode": "softmax",
+  "beta_tom": 2.0,
+  "planning_horizon": 1,
+  "tasks": [
+    {
+      "task": "clean_up",
+      "scenario": "default_truth"
+    }
+  ],
+  "n_seeds": 2,
+  "expected_episodes": 2
+}

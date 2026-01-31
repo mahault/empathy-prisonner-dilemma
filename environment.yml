@@ -1,0 +1,27 @@
+name: empathy-prisoner-dilemma
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  # Core dependencies
+  - numpy>=1.24.0
+  - matplotlib>=3.7.0
+  - pandas>=2.0.0
+  # Graph navigation
+  - networkx>=3.1.0
+  - pydot>=2.0.0
+  # Clean up task (numba-based)
+  - numba>=0.57.0
+  - scipy>=1.10.0
+  - tqdm>=4.65.0
+  - pyyaml>=6.0
+  # Development
+  - jupyter
+  - pytest>=7.3.0
+  - pip
+  - pip:
+    # pymdp for prisoners_dilemma and graph_navigation
+    - inferactively-pymdp @ git+https://github.com/tverbele/pymdp.git@si_branch_observations
+    # Install this package in editable mode
+    - -e .

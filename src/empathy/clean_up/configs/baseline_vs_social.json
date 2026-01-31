@@ -1,0 +1,29 @@
+{
+  "name": "baseline_vs_social",
+  "description": "Compare baseline (self-learning) vs social learning with expert and mismatched agents",
+  "task": "clean_up",
+  "scenario": "default_truth",
+  "n_seeds": 1,
+  "tom_mode": "softmax",
+  "beta_tom": 2.0,
+  "debug_tom": false,
+  "max_steps": 200,
+  "save_batch_size": 10,
+  "n_agents": 2,
+  "spawn_probs_true": {
+    "spawn_probs": [0.25, 0.15, 0.05, 0.0, 0.0]
+  },
+  "beliefs_self_init": {
+    "spawn_probs": [0.30, 0.25, 0.20, 0.15, 0.10],
+    "concentration": 2.0
+  },
+  "beliefs_expert_mismatched": {
+    "spawn_probs": [0.20, 0.15, 0.10, 0.05, 0.0],
+    "concentration": 100.0
+  },
+  "eta_0": 0.1,
+  "T_a": 2.0,
+  "u_0": 0.05,
+  "kappa": 0.05,
+  "expected_episodes": 3
+}

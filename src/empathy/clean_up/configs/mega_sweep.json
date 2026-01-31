@@ -1,0 +1,42 @@
+{
+  "name": "mega_sweep",
+  "description": "Comprehensive weight combination sweep for clean_up task and mismatch conditions",
+  "tom_mode": "softmax",
+  "beta_tom": 2.0,
+  "tasks": [
+    {
+      "task": "clean_up",
+      "scenario": "default_truth"
+    }
+  ],
+  "n_seeds": 2,
+  "social_enabled": [true, false],
+  "eta_0": [0.05, 0.1, 0.2, 0.5],
+  "lambda_mix": [0.0, 0.1, 0.2, 0.3],
+  "u_0": [0.03, 0.05, 0.08],
+  "kappa": [0.05, 0.08],
+  "mismatch_severities": [
+    {
+      "name": "moderate",
+      "clean_up": {
+        "spawn_probs": [0.20, 0.12, 0.04, 0.0, 0.0],
+        "concentration": 100.0
+      }
+    },
+    {
+      "name": "severe",
+      "clean_up": {
+        "spawn_probs": [0.15, 0.10, 0.05, 0.0, 0.0],
+        "concentration": 100.0
+      }
+    }
+  ],
+  "scenario_truth_params": {
+    "clean_up": {
+      "default_truth": {
+        "spawn_probs": [0.25, 0.15, 0.05, 0.0, 0.0]
+      }
+    }
+  },
+  "expected_episodes": 192
+}

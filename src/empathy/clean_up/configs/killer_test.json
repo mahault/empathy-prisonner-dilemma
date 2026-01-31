@@ -1,0 +1,29 @@
+{
+  "name": "killer_test",
+  "description": "Mismatch protection for clean_up task",
+  "tom_mode": "softmax",
+  "beta_tom": 2.0,
+  "tasks": [
+    {
+      "task": "clean_up",
+      "scenario": "default_truth"
+    }
+  ],
+  "n_seeds": 5,
+  "social_enabled": [true, false],
+  "eta_0": [0.2, 0.5, 1.0, 2.0],
+  "scenario_truth_params": {
+    "clean_up": {
+      "default_truth": {
+        "spawn_probs": [0.25, 0.15, 0.05, 0.0, 0.0]
+      }
+    }
+  },
+  "expert_mismatch_params": {
+    "clean_up": {
+      "spawn_probs": [0.20, 0.15, 0.10, 0.05, 0.0],
+      "concentration": 100.0
+    }
+  },
+  "expected_episodes": 40
+}
