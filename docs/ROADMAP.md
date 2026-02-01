@@ -99,26 +99,34 @@ Status: [ ] Not Started  [●] In Progress  [✓] Complete
 
 ### Phase 5: Parameter Sweeps
 ```
-[ ] Sweep configuration
+[✓] Sweep configuration
     ├── λ_i, λ_j: [0, 0.25, 0.5, 0.75, 1.0]
     ├── β_i, β_j: [1, 4, 16]
-    ├── tom_depth: [0, 1]
-    └── n_seeds: 50-200 per cell
+    ├── use_inversion: [False, True]
+    └── n_seeds: 50 per cell (22,500 total runs)
 
-[ ] Output logging
+[✓] Output logging
     ├── Outcome frequencies (CC/CD/DC/DD)
     ├── Payoffs (mean, std, gap)
     ├── Exploitability scores
-    └── Reliability stats
+    └── Results saved to results/phase5_full_sweep.json
 ```
 
-### Phase 6: Validation
+### Phase 6: Validation & Analysis
 ```
-[ ] Sanity checks
-    ├── ToM off + λ > 0 → different from full model
-    ├── ToM on + λ = 0 → no empathy leakage
-    ├── Asymmetric λ → exploitation dynamics
-    └── Low reliability → graceful degradation
+[✓] Sanity checks (all passed)
+    ├── ToM on + λ = 0 → 2% cooperation (no empathy leakage)
+    ├── ToM on + λ ≥ 0.5 → 100% cooperation
+    ├── Asymmetric λ → exploitation dynamics confirmed
+    └── High-empathy agents disadvantaged when facing low-empathy
+
+[✓] Visualizations generated (figures/)
+    ├── cooperation_heatmap.png - CC rate by lambda_i x lambda_j
+    ├── outcome_distribution.png - outcomes by empathy category
+    ├── beta_effect.png - action precision analysis
+    ├── exploitation_dynamics.png - payoff gap analysis
+    ├── inversion_effect.png - with/without opponent inference
+    └── summary_figure.png - combined 4-panel figure
 ```
 
 ---

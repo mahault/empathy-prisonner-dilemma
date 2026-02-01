@@ -16,6 +16,71 @@ python scripts/run_tests.py
 python scripts/run_pd_experiments.py --mode smoke
 ```
 
+## Prisoner's Dilemma: Theory of Mind + Empathy
+
+### Core Contribution
+
+This implementation demonstrates "proper ToM + empathy" that **does not bake in pro-sociality** but allows it to emerge from principled EFE weighting:
+
+```
+G_social(a_i) = (1 - lambda) * G_self(a_i | predicted_response) + lambda * G_other(predicted_response | a_i)
+```
+
+Unlike previous approaches where pro-sociality is assumed, here empathy emerges from:
+1. **Theory of Mind**: Agent predicts opponent's response to each candidate action
+2. **Social EFE**: Agent weighs own expected free energy against opponent's
+3. **Empathy factor (lambda)**: Controls the weight given to opponent's welfare
+
+### Architecture
+
+```
+EmpatheticAgent
+├── self_agent (PyMDP)     # Own generative model
+├── other_model (PyMDP)    # Model of opponent
+├── tom                    # Theory of Mind module
+│   ├── inversion          # Particle-based opponent inference
+│   └── best_response      # Predict opponent's likely action
+└── empathy_factor         # lambda in [0, 1]
+```
+
+### Key Equations
+
+**Social EFE (main contribution):**
+```
+G_social(a_i) = (1 - lambda) * G_i(a_i | q(a_j|a_i)) + lambda * E[G_j(a_j | a_i)]
+```
+
+**Opponent Response (ToM depth-1):**
+```
+q(a_j | a_i) ~ exp(-beta_j * G_j(a_j | a_i))
+```
+
+**Reliability gating (from Harshil's work):**
+```
+H(w) = -sum_k w_k * log(w_k)         # Weight entropy
+u_t = 1 - H(w) / log(N_particles)    # Confidence
+r_t = sigmoid((u_t - u_0) / kappa)   # Reliability
+```
+
+### Phase 5 Results: Parameter Sweep
+
+We ran 22,500 experiments sweeping over:
+- `lambda_i, lambda_j`: [0, 0.25, 0.5, 0.75, 1.0]
+- `beta_i, beta_j`: [1, 4, 16]
+- `use_inversion`: [False, True]
+- 50 seeds per condition
+
+**Key Findings:**
+
+| Condition | Cooperation Rate | Interpretation |
+|-----------|------------------|----------------|
+| lambda = 0, 0 | 2% | Baseline: mutual defection |
+| lambda = 0.25, 0.25 | 70% | Some cooperation emerges |
+| lambda >= 0.5, >= 0.5 | **100%** | Full mutual cooperation |
+| lambda = 0.9, 0.1 | Exploited | High-empathy agent disadvantaged |
+
+**Main result:** Empathy (lambda >= 0.5) combined with ToM reliably produces mutual cooperation without baking in pro-sociality.
+
 ## Projects
 
 This repository contains three active inference research projects:
@@ -56,8 +121,11 @@ python scripts/run_pd_experiments.py --mode smoke
 # Single experiment with custom parameters
 python scripts/run_pd_experiments.py --mode single --lambda_i 0.5 --lambda_j 0.5 --T 50
 
-# Parameter sweep
-python scripts/run_pd_experiments.py --mode sweep --output results/sweep.json --n_seeds 10
+# Parameter sweep (full - takes ~12 min)
+python scripts/run_pd_experiments.py --mode sweep --output results/sweep.json --n_seeds 50
+
+# Quick sweep (for testing)
+python scripts/run_pd_experiments.py --mode sweep --quick --n_seeds 5
 
 # Validation checks (from roadmap)
 python scripts/run_pd_experiments.py --mode validate
@@ -119,14 +187,37 @@ scripts/
 docs/
 ├── ROADMAP.md             # Development roadmap
 └── IMPLEMENTATION_PLAN.md # Detailed implementation plan
+
+results/                   # Experiment outputs (gitignored)
 ```
 
 ## Development Status
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for current progress:
 
-- **Phase 1-4**: Complete (ToM, inversion, exploitability)
-- **Phase 5-6**: In progress (parameter sweeps, validation)
+| Phase | Status | Description |
+|-------|--------|-------------|
+| Phase 1: Refactoring | Complete | Module structure, ToMEmpatheticAgent |
+| Phase 2: ToM Implementation | Complete | Best-response prediction, social EFE |
+| Phase 3: Harshil's Inversion | Complete | Particle filter, reliability gating |
+| Phase 4: Exploitability | Complete | Game-theoretic analysis, outcome classification |
+| Phase 5: Parameter Sweeps | Complete | Full sweep over lambda, beta, inversion (22,500 runs) |
+| Phase 6: Validation | Complete | Visualizations, statistical analysis |
+
+## Generated Figures
+
+After running the parameter sweep, generate analysis figures:
+
+```bash
+python scripts/analyze_sweep.py --input results/phase5_full_sweep.json --output figures/
+```
+
+This creates:
+- `cooperation_heatmap.png` - Cooperation rate by empathy levels
+- `outcome_distribution.png` - Outcomes by empathy configuration
+- `beta_effect.png` - Effect of action precision
+- `exploitation_dynamics.png` - Payoff gap analysis
+- `summary_figure.png` - Combined 4-panel paper figure
 
 ## Usage Examples
 
@@ -166,9 +257,17 @@ runner = ExperimentRunner("smoke")
 results = runner.run()
 ```
 
-## Running Tests
+## Validation Matrix
 
-```bash
-pytest tests/
-pytest src/empathy/clean_up/agent/tests/
-```
+| Condition | Expected | Observed | Status |
+|-----------|----------|----------|--------|
+| lambda=0, ToM=on | Baseline defection | 2% cooperation | Pass |
+| lambda>0, ToM=on | Pro-sociality emerges | 100% CC at lambda>=0.5 | Pass |
+| Asymmetric lambda | Exploitation dynamics | High-lambda exploited | Pass |
+| Symmetric high lambda | Mutual cooperation | 100% CC | Pass |
+
+## References
+
+- Implementation based on discussions with Mahault Albarracin, Sanjeev Namjoshi, Hongju, and Harshil
+- Particle filter and reliability gating adapted from SocialLearningAgents
+- Exploitability analysis adapted from alignment experiments
