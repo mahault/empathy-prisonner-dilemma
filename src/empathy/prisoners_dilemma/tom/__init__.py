@@ -8,10 +8,14 @@ This module provides:
 
 from empathy.prisoners_dilemma.tom.tom_core import TheoryOfMind, SocialEFE
 from empathy.prisoners_dilemma.tom.inversion import OpponentInversion, OpponentHypothesis
+from empathy.prisoners_dilemma.tom.opponent_simulator import OpponentSimulator
+from empathy.prisoners_dilemma.tom.sophisticated_planner import SophisticatedPlanner
 
 __all__ = [
     "TheoryOfMind",
     "SocialEFE",
     "OpponentInversion",
     "OpponentHypothesis",
+    "OpponentSimulator",
+    "SophisticatedPlanner",
 ]

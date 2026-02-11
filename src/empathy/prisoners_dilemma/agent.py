@@ -10,6 +10,8 @@ from pymdp.utils import dirichlet_like
 from empathy.prisoners_dilemma.tom import TheoryOfMind, SocialEFE, OpponentInversion
 from empathy.prisoners_dilemma.tom.inversion import ObservationContext, GatedToM
 from empathy.prisoners_dilemma.tom.tom_core import softmax as tom_softmax
+from empathy.prisoners_dilemma.tom.opponent_simulator import OpponentSimulator
+from empathy.prisoners_dilemma.tom.sophisticated_planner import SophisticatedPlanner
 
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
@@ -260,6 +262,8 @@ class ToMEmpatheticAgent:
         use_inversion: bool = True,
         n_particles: int = 30,
         reliability_threshold: float = 0.5,
+        use_sophisticated: bool = False,
+        planning_horizon: int = 3,
     ) -> None:
         """
         Initialize ToM-based empathetic agent.
@@ -273,12 +277,16 @@ class ToMEmpatheticAgent:
             use_inversion: Whether to use particle-based opponent inference
             n_particles: Number of particles for opponent inference
             reliability_threshold: Threshold for trusting ToM predictions
+            use_sophisticated: Whether to use multi-step sophisticated planning
+            planning_horizon: Number of steps to plan ahead (H) when sophisticated
         """
         self.agent_num = agent_num
         self.empathy_factor = empathy_factor
         self.beta_self = beta_self
         self.beta_other = beta_other
         self.use_inversion = use_inversion
+        self.use_sophisticated = use_sophisticated
+        self.planning_horizon = planning_horizon
 
         # Extract matrices from config
         self.A = config["A"][agent_num]
@@ -384,22 +392,53 @@ class ToMEmpatheticAgent:
         # 3. Infer my own state beliefs
         self.self_agent.infer_states([observation])
 
-        # 4. Compute social EFE for each action
+        # 4. Build observation context for opponent prediction
+        context = self._build_observation_context(t) if t > 0 else None
+
+        # 5. Compute action distribution (myopic or sophisticated)
         my_beliefs = None
         if self.self_agent.qs is not None and len(self.self_agent.qs) > 0:
             my_beliefs = self.self_agent.qs[0]
-        G_social, info = self.social_efe.compute_all_actions(my_beliefs=my_beliefs)
 
-        # 5. Select action using softmax over -β * G_social
-        q_action = tom_softmax(-G_social, temperature=1.0/self.beta_self)
+        if self.use_sophisticated:
+            # Sophisticated: multi-step rollout planner
+            opponent_sim = OpponentSimulator(
+                tom=self.tom,
+                gated_tom=self.gated_tom if self.use_inversion else None,
+                context=context,
+            )
+            planner = SophisticatedPlanner(
+                opponent_sim=opponent_sim,
+                empathy_factor=self.empathy_factor,
+                horizon=self.planning_horizon,
+                beta_self=self.beta_self,
+            )
+            q_action, best_policy, plan_info = planner.plan(my_beliefs)
+            G_social = plan_info["G_policies"]
+            info = plan_info
+        else:
+            # Myopic: single-step social EFE (existing path)
+            q_response_overrides = None
+            if self.use_inversion and t > 0:
+                q_response_overrides = {
+                    a: self.gated_tom.predict_opponent_response(a, context)
+                    for a in [COOPERATE, DEFECT]
+                }
+            G_social, info = self.social_efe.compute_all_actions(
+                my_beliefs=my_beliefs,
+                q_response_overrides=q_response_overrides,
+            )
+            q_action = tom_softmax(-G_social, temperature=1.0/self.beta_self)
+
+        # 6. Sample action from distribution
         action = int(np.random.choice([COOPERATE, DEFECT], p=q_action))
 
-        # 6. Store for next step
+        # 7. Store for next step
         self.action_history.append(action)
         self.last_action = action
         self.qs_prev = self.self_agent.qs
 
-        # 7. Update cumulative payoffs
+        # 8. Update cumulative payoffs
         if t > 0 and observation is not None:
             my_payoff, other_payoff = self._get_payoffs_from_observation(observation)
             self.my_cumulative_payoff += my_payoff

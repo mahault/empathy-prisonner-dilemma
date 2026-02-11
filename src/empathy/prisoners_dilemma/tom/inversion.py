@@ -375,6 +375,32 @@ class OpponentInversion:
         """Check if current inference is reliable enough to trust."""
         return self.reliability() >= self.reliability_threshold
 
+    def predict_action(self, context: ObservationContext) -> np.ndarray:
+        """Bayesian model-averaged prediction of opponent's next action.
+
+        Aggregates P(action | type) across all particles weighted by
+        their posterior probability.
+
+        Args:
+            context: Current observation context
+
+        Returns:
+            np.ndarray: [P(Cooperate), P(Defect)]
+        """
+        action_probs = np.zeros(2)
+        for k in range(self.n_particles):
+            hypothesis = self.hypotheses[self.particle_types[k]]
+            probs = self._hypothesis_action_probs(
+                hypothesis, context, self.particle_params[k]
+            )
+            action_probs += self.weights[k] * probs
+        total = action_probs.sum()
+        if total > 0:
+            action_probs /= total
+        else:
+            action_probs = np.array([0.5, 0.5])
+        return action_probs
+
     def reset(self):
         """Reset inversion state."""
         self._initialize_particles()
@@ -383,29 +409,30 @@ class OpponentInversion:
 
 class GatedToM:
     """
-    Theory of Mind with reliability gating.
+    Theory of Mind with reliability-gated opponent inversion.
 
-    Uses inversion reliability to gate how much ToM predictions influence
-    decisions. When reliability is low, falls back to uniform prior.
+    Smoothly interpolates between the static ToM prediction (prior) and the
+    learned prediction from the particle filter (posterior), weighted by
+    inversion reliability.
+
+    Low reliability  → static ToM (assumes selfish rational opponent)
+    High reliability → learned model (Bayesian model-averaged across particles)
     """
 
     def __init__(
         self,
         tom: 'TheoryOfMind',  # Forward reference
         inversion: OpponentInversion,
-        fallback_distribution: np.ndarray = np.array([0.5, 0.5]),
     ):
         """
         Initialize gated ToM.
 
         Args:
-            tom: Theory of Mind module
-            inversion: Opponent inversion module
-            fallback_distribution: Distribution to use when unreliable
+            tom: Theory of Mind module (static prior)
+            inversion: Opponent inversion module (learned posterior)
         """
         self.tom = tom
         self.inversion = inversion
-        self.fallback_distribution = fallback_distribution
 
     def predict_opponent_response(
         self,
@@ -415,19 +442,31 @@ class GatedToM:
         """
         Predict opponent response with reliability gating.
 
+        Blends static ToM (prior) with learned inversion prediction (posterior):
+            q_gated = r * q_learned + (1 - r) * q_static_tom
+
+        Args:
+            my_action: My candidate action (0=C, 1=D)
+            context: Observation context for the learned prediction.
+                Required when reliability > 0 for meaningful results.
+
         Returns:
-            q(a_j | a_i) - possibly interpolated with fallback if unreliable
+            q(a_j | a_i) - gated distribution over opponent actions
         """
         reliability = self.inversion.reliability()
 
-        # Get ToM prediction
+        # Static ToM prediction (prior)
         tom_prediction = self.tom.predict_opponent_response(my_action)
         q_tom = tom_prediction.q_response
 
-        # Interpolate based on reliability
-        # High reliability: use ToM prediction
-        # Low reliability: use fallback (uniform)
-        q_gated = reliability * q_tom + (1 - reliability) * self.fallback_distribution
+        # Learned prediction from inversion (posterior)
+        if context is not None:
+            q_learned = self.inversion.predict_action(context)
+        else:
+            q_learned = q_tom  # Fall back to static if no context
+
+        # Smooth interpolation based on reliability
+        q_gated = reliability * q_learned + (1 - reliability) * q_tom
 
         return q_gated
 

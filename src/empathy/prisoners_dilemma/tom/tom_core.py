@@ -197,6 +197,7 @@ class SocialEFE:
         self,
         my_action: int,
         my_beliefs: Optional[np.ndarray] = None,
+        q_response_override: Optional[np.ndarray] = None,
     ) -> Tuple[float, Dict[str, Any]]:
         """
         Compute social EFE for a candidate action.
@@ -204,15 +205,27 @@ class SocialEFE:
         Args:
             my_action: Candidate action (0=C, 1=D)
             my_beliefs: Current state beliefs (optional)
+            q_response_override: If provided, use this as q(a_j|a_i) instead
+                of the static ToM prediction. From learned opponent model.
 
         Returns:
             G_social: Social expected free energy
             info: Dictionary with breakdown (G_self, G_other_expected, etc.)
         """
-        # Get opponent's predicted response
-        prediction = self.tom.predict_opponent_response(my_action, my_beliefs)
-        q_response = prediction.q_response
-        G_other = prediction.G_other
+        if q_response_override is not None:
+            q_response = q_response_override
+            # Compute G_other for each opponent action under known payoffs
+            G_other = np.zeros(2)
+            for a_j in [COOPERATE, DEFECT]:
+                _, other_payoff = PD_PAYOFFS[(my_action, a_j)]
+                G_other[a_j] = -other_payoff
+            confidence = 1.0
+        else:
+            # Get opponent's predicted response from static ToM
+            prediction = self.tom.predict_opponent_response(my_action, my_beliefs)
+            q_response = prediction.q_response
+            G_other = prediction.G_other
+            confidence = prediction.confidence
 
         # My EFE given opponent's expected response
         G_self = self._compute_my_efe(my_action, q_response)
@@ -230,7 +243,7 @@ class SocialEFE:
             "q_response": q_response,
             "G_other": G_other,
             "empathy_factor": λ,
-            "prediction_confidence": prediction.confidence,
+            "prediction_confidence": confidence,
         }
 
         return G_social, info
@@ -256,9 +269,15 @@ class SocialEFE:
     def compute_all_actions(
         self,
         my_beliefs: Optional[np.ndarray] = None,
+        q_response_overrides: Optional[Dict[int, np.ndarray]] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Compute social EFE for all candidate actions.
+
+        Args:
+            my_beliefs: Current state beliefs (optional)
+            q_response_overrides: If provided, per-action mapping
+                {action: q(a_j|a_i)} from gated opponent model.
 
         Returns:
             G_social: Array of social EFE for each action [G(C), G(D)]
@@ -268,7 +287,10 @@ class SocialEFE:
         info_all = {}
 
         for a_i in [COOPERATE, DEFECT]:
-            G_social[a_i], info_all[a_i] = self.compute(a_i, my_beliefs)
+            override = q_response_overrides[a_i] if q_response_overrides else None
+            G_social[a_i], info_all[a_i] = self.compute(
+                a_i, my_beliefs, q_response_override=override
+            )
 
         return G_social, info_all
 
