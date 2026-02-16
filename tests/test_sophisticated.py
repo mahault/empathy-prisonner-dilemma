@@ -77,31 +77,33 @@ class TestOpponentSimulator:
 
     def test_predict_response_returns_distribution(self):
         sim = make_opponent_sim()
-        q = sim.predict_response(COOPERATE, step=0)
+        q = sim.predict_response(step=0)
         assert len(q) == 2
         assert np.isclose(q.sum(), 1.0)
         assert all(p >= 0 for p in q)
 
     def test_step0_uses_static_tom_when_no_gated(self):
         sim = make_opponent_sim(use_gated=False)
-        q0 = sim.predict_response(COOPERATE, step=0)
-        q1 = sim.predict_response(COOPERATE, step=1)
+        q0 = sim.predict_response(step=0)
+        q1 = sim.predict_response(step=1)
         # Without gated_tom, step 0 and step 1 should give same result
         np.testing.assert_array_almost_equal(q0, q1)
 
     def test_future_steps_use_static_tom(self):
         sim = make_opponent_sim(use_gated=True)
         # Future steps (>0) should use static ToM
-        q1 = sim.predict_response(COOPERATE, step=1)
-        q5 = sim.predict_response(COOPERATE, step=5)
+        q1 = sim.predict_response(step=1)
+        q5 = sim.predict_response(step=5)
         np.testing.assert_array_almost_equal(q1, q5)
 
-    def test_different_actions_give_different_predictions(self):
+    def test_prediction_is_action_independent(self):
+        """In simultaneous-move games, opponent prediction should not depend on my action."""
         sim = make_opponent_sim()
-        q_c = sim.predict_response(COOPERATE, step=0)
-        q_d = sim.predict_response(DEFECT, step=0)
-        # Predictions should differ for different actions
-        assert not np.allclose(q_c, q_d)
+        # Call predict_response multiple times — should return same distribution
+        # (no action conditioning in simultaneous moves)
+        q1 = sim.predict_response(step=0)
+        q2 = sim.predict_response(step=0)
+        np.testing.assert_array_almost_equal(q1, q2)
 
 
 # ── SophisticatedPlanner Tests ────────────────────────────────────────────

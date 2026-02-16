@@ -1,38 +1,54 @@
 """Opponent Inversion module (Harshil's principled inversion).
 
-Implements particle-based inference over opponent types/parameters.
+Implements particle-based inference over opponent behavioral parameters,
+including opponent empathy λ_j as a latent variable.
 
-Key components:
-- Hypothesis space: Different opponent strategies (TFT, WSLS, etc.)
-- Likelihood: P(observed_action | hypothesis, context)
-- Particle filter: Update weights based on observations
-- Reliability gating: Only trust ToM when inference is reliable
+Each particle represents a parametric behavioral profile:
+    P(a_j = C | h_t) = sigma(beta * (alpha + rho * f(h_t) + empathy_shift(lambda_j, p)))
+
+where:
+    alpha = cooperation bias (ALLC-like when high, ALLD-like when low)
+    rho   = reciprocity (TFT-like when positive, contrarian when negative)
+    beta  = action precision (deterministic when high, random when low)
+    lambda_j = opponent empathy [0, 1] (how much opponent values our payoff)
+    f(h_t) = history feature (+1 if I cooperated last, -1 if I defected, 0 if no history)
+    empathy_shift = social EFE-derived cooperation advantage given lambda_j
+
+The empathy_shift is derived from PD payoffs (R=3, S=0, T=5, P=1):
+    empathy_shift(lambda_j, p) = 5 * lambda_j - p - 1
+
+where p is the opponent's belief about my cooperation rate. This means:
+    lambda_j = 0  → shift = -p-1 (selfish, D preferred)
+    lambda_j > 0  → shift increases (empathy pushes toward C)
+
+Classic strategies as special cases:
+    ALLC:   alpha >> 0, rho ~ 0
+    ALLD:   alpha << 0, rho ~ 0
+    TFT:    alpha ~ 0,  rho >> 0
+    Random: alpha ~ 0,  rho ~ 0, beta ~ 0
 """
 
 import numpy as np
-from typing import Optional, Dict, List, Tuple, Callable
-from dataclasses import dataclass
-from enum import Enum
+from typing import Optional, Dict, List, Tuple
+from dataclasses import dataclass, field
 
 
-class OpponentHypothesis(Enum):
-    """Hypotheses about opponent's strategy type."""
-    ALWAYS_COOPERATE = "always_C"
-    ALWAYS_DEFECT = "always_D"
-    TIT_FOR_TAT = "TFT"  # Copy opponent's last action
-    WIN_STAY_LOSE_SHIFT = "WSLS"  # Repeat if won, switch if lost
-    RANDOM = "random"  # 50/50
-    RATIONAL = "rational"  # Rational with some β (minimize EFE)
+@dataclass
+class BehavioralProfile:
+    """Parametric behavioral profile for a particle."""
+    alpha: float       # cooperation bias (logit scale)
+    reciprocity: float  # sensitivity to my last action (TFT-like)
+    beta: float        # action precision (inverse temperature)
+    lambda_j: float = 0.0  # opponent empathy level [0, 1]
 
 
 @dataclass
 class InversionState:
     """State of the opponent inversion."""
-    weights: np.ndarray  # Particle weights
-    particle_types: np.ndarray  # Strategy type for each particle
-    particle_params: np.ndarray  # Optional parameters (e.g., β for rational)
-    reliability: float  # Current reliability score
-    entropy: float  # Weight entropy
+    weights: np.ndarray
+    profiles: List[BehavioralProfile]
+    reliability: float
+    entropy: float
     effective_sample_size: float
 
 
@@ -52,120 +68,123 @@ def sigmoid(x: float, center: float = 0.0, scale: float = 1.0) -> float:
     return 1.0 / (1.0 + np.exp(-(x - center) / scale))
 
 
+def _logistic(x: float) -> float:
+    """Standard logistic sigmoid, numerically stable."""
+    if x >= 0:
+        return 1.0 / (1.0 + np.exp(-x))
+    else:
+        ez = np.exp(x)
+        return ez / (1.0 + ez)
+
+
 class OpponentInversion:
     """
-    Particle-based opponent inference (Harshil's inversion pattern).
+    Particle-based opponent inference using parametric behavioral profiles.
 
-    Maintains a distribution over opponent "types" (strategies) and updates
-    based on observed actions. Provides reliability gating to know when
-    ToM predictions can be trusted.
+    Each particle carries (alpha, reciprocity, beta, lambda_j) and produces:
+        P(C | h_t) = logistic(beta * (alpha + reciprocity * f(h_t) + empathy_shift))
+
+    where f(h_t) encodes the history feature and empathy_shift captures the
+    social EFE-derived cooperation advantage from opponent empathy.
     """
 
     def __init__(
         self,
         n_particles: int = 30,
-        hypotheses: Optional[List[OpponentHypothesis]] = None,
         reliability_threshold: float = 0.5,
-        resample_threshold: float = 0.5,  # ESS fraction
+        resample_threshold: float = 0.5,
         initial_weights: Optional[np.ndarray] = None,
+        # Keep hypotheses parameter for backward compat (ignored)
+        hypotheses=None,
     ):
-        """
-        Initialize opponent inversion.
-
-        Args:
-            n_particles: Number of particles
-            hypotheses: List of opponent strategy hypotheses
-            reliability_threshold: Threshold for trusting ToM
-            resample_threshold: ESS threshold for resampling (as fraction of n_particles)
-            initial_weights: Initial particle weights (uniform if None)
-        """
         self.n_particles = n_particles
         self.reliability_threshold = reliability_threshold
         self.resample_threshold = resample_threshold
+        self.my_cooperation_rate: float = 0.5  # Updated by agent each round
 
-        # Default hypotheses if not provided
-        if hypotheses is None:
-            hypotheses = [
-                OpponentHypothesis.ALWAYS_COOPERATE,
-                OpponentHypothesis.ALWAYS_DEFECT,
-                OpponentHypothesis.TIT_FOR_TAT,
-                OpponentHypothesis.WIN_STAY_LOSE_SHIFT,
-                OpponentHypothesis.RANDOM,
-            ]
-        self.hypotheses = hypotheses
-        self.n_hypotheses = len(hypotheses)
-
-        # Initialize particles
         self._initialize_particles(initial_weights)
-
-        # Track observation history
         self.observation_history: List[Tuple[int, ObservationContext]] = []
 
     def _initialize_particles(self, initial_weights: Optional[np.ndarray] = None):
-        """Initialize particle weights and types."""
-        # Uniform weights
+        """Initialize particles with priors over behavioral parameters."""
         if initial_weights is not None:
             self.weights = initial_weights.copy()
         else:
             self.weights = np.ones(self.n_particles) / self.n_particles
 
-        # Assign hypothesis types to particles (uniform distribution over types)
-        self.particle_types = np.random.choice(
-            len(self.hypotheses),
-            size=self.n_particles,
-            replace=True
-        )
+        self.profiles: List[BehavioralProfile] = []
+        for _ in range(self.n_particles):
+            alpha = np.random.normal(0.0, 2.0)
+            reciprocity = np.random.normal(0.0, 1.5)
+            beta = np.random.gamma(2.0, 2.0)
+            lambda_j = np.random.uniform(0.0, 1.0)
+            self.profiles.append(BehavioralProfile(alpha, reciprocity, beta, lambda_j))
 
-        # Parameters for each particle (e.g., β for rational type)
-        # For rational particles, sample β from a prior
-        self.particle_params = np.ones(self.n_particles) * 4.0  # Default β=4
-        rational_idx = np.where(
-            np.array([self.hypotheses[t] for t in self.particle_types]) == OpponentHypothesis.RATIONAL
-        )[0]
-        if len(rational_idx) > 0:
-            self.particle_params[rational_idx] = np.random.gamma(4, 1, size=len(rational_idx))
+    def _history_feature(self, context: ObservationContext) -> float:
+        """Extract history feature f(h_t) for the parametric model.
+
+        Returns +1 if I cooperated last, -1 if I defected, 0 if no history.
+        """
+        if context.my_last_action is None:
+            return 0.0
+        return 1.0 - 2.0 * context.my_last_action  # C=0 → +1, D=1 → -1
+
+    def _empathy_feature(self, lambda_j: float, my_coop_rate: float) -> float:
+        """Compute social-EFE utility advantage of cooperation for opponent with empathy lambda_j.
+
+        Derived from PD payoffs (R=3, S=0, T=5, P=1):
+            E[U_j(C)] - E[U_j(D)] = 5*lambda_j - p - 1
+
+        where p = my_coop_rate (opponent's belief about my cooperation probability).
+
+        Returns positive when cooperation is preferred (high empathy),
+        negative when defection is preferred (low empathy).
+        """
+        return 5.0 * lambda_j - my_coop_rate - 1.0
+
+    def _particle_action_probs(
+        self,
+        particle_idx: int,
+        context: ObservationContext,
+    ) -> np.ndarray:
+        """Compute P(a_j) = [P(C), P(D)] for a single particle.
+
+        P(C | h_t) = logistic(beta * (alpha + reciprocity * f(h_t) + empathy_shift))
+        """
+        profile = self.profiles[particle_idx]
+        f = self._history_feature(context)
+        empathy_shift = self._empathy_feature(profile.lambda_j, self.my_cooperation_rate)
+        logit = profile.beta * (profile.alpha + profile.reciprocity * f + empathy_shift)
+        p_c = _logistic(logit)
+        return np.array([p_c, 1.0 - p_c])
 
     def update(
         self,
         observed_action: int,
         context: ObservationContext,
     ) -> InversionState:
-        """
-        Update particle weights given observed opponent action.
-
-        Args:
-            observed_action: Observed opponent action (0=C, 1=D)
-            context: Observation context (previous actions, etc.)
-
-        Returns:
-            InversionState with updated weights and reliability
-        """
-        # Store observation
+        """Update particle weights given observed opponent action."""
         self.observation_history.append((observed_action, context))
 
         # Compute likelihood for each particle
         likelihoods = np.zeros(self.n_particles)
         for k in range(self.n_particles):
-            hypothesis = self.hypotheses[self.particle_types[k]]
-            params = self.particle_params[k]
-            likelihoods[k] = self._action_likelihood(
-                observed_action, hypothesis, context, params
-            )
+            probs = self._particle_action_probs(k, context)
+            likelihoods[k] = max(probs[observed_action], 1e-10)
 
         # Update weights
         self.weights *= likelihoods
 
-        # Normalize (handle case where all weights are 0)
+        # Normalize
         weight_sum = np.sum(self.weights)
         if weight_sum > 1e-10:
             self.weights /= weight_sum
         else:
-            # Reset to uniform if all weights collapsed
             self.weights = np.ones(self.n_particles) / self.n_particles
 
-        # Compute reliability
-        reliability = self.reliability()
-        entropy = self._weight_entropy()
+        # Compute metrics
+        rel = self.reliability()
+        ent = self._weight_entropy()
         ess = self._effective_sample_size()
 
         # Resample if ESS too low
@@ -174,149 +193,30 @@ class OpponentInversion:
 
         return InversionState(
             weights=self.weights.copy(),
-            particle_types=self.particle_types.copy(),
-            particle_params=self.particle_params.copy(),
-            reliability=reliability,
-            entropy=entropy,
+            profiles=[BehavioralProfile(p.alpha, p.reciprocity, p.beta, p.lambda_j)
+                      for p in self.profiles],
+            reliability=rel,
+            entropy=ent,
             effective_sample_size=ess,
         )
 
-    def _action_likelihood(
-        self,
-        action: int,
-        hypothesis: OpponentHypothesis,
-        context: ObservationContext,
-        params: float = 4.0,
-    ) -> float:
-        """
-        Compute P(action | hypothesis, context).
-
-        Args:
-            action: Observed action (0=C, 1=D)
-            hypothesis: Opponent strategy hypothesis
-            context: Observation context
-            params: Parameters (e.g., β for rational)
-
-        Returns:
-            Likelihood of observed action
-        """
-        # Get action probabilities under this hypothesis
-        p_action = self._hypothesis_action_probs(hypothesis, context, params)
-
-        # Return likelihood (with small floor for numerical stability)
-        return max(p_action[action], 1e-10)
-
-    def _hypothesis_action_probs(
-        self,
-        hypothesis: OpponentHypothesis,
-        context: ObservationContext,
-        params: float,
-    ) -> np.ndarray:
-        """
-        Get P(a) for each action under a hypothesis.
-
-        Returns:
-            Array [P(C), P(D)] under the hypothesis
-        """
-        if hypothesis == OpponentHypothesis.ALWAYS_COOPERATE:
-            return np.array([0.99, 0.01])
-
-        elif hypothesis == OpponentHypothesis.ALWAYS_DEFECT:
-            return np.array([0.01, 0.99])
-
-        elif hypothesis == OpponentHypothesis.RANDOM:
-            return np.array([0.5, 0.5])
-
-        elif hypothesis == OpponentHypothesis.TIT_FOR_TAT:
-            # Copy my last action (from opponent's perspective, my action)
-            if context.my_last_action is None:
-                # First round: TFT typically starts with cooperation
-                return np.array([0.9, 0.1])
-            else:
-                # Copy what I did
-                if context.my_last_action == 0:  # I cooperated
-                    return np.array([0.95, 0.05])  # They cooperate
-                else:
-                    return np.array([0.05, 0.95])  # They defect
-
-        elif hypothesis == OpponentHypothesis.WIN_STAY_LOSE_SHIFT:
-            # Repeat if outcome was good, switch if bad
-            if context.joint_outcome is None:
-                # First round: often starts with cooperation
-                return np.array([0.7, 0.3])
-            else:
-                # Check if opponent "won" last round
-                # CC=0, CD=1, DC=2, DD=3
-                # From opponent's view: CD (I got suckered) is bad, DC (I exploited) is good
-                if context.their_last_action == 0:  # They cooperated
-                    # CC is good (mutual), CD is bad (suckered)
-                    if context.joint_outcome in [0]:  # CC - good, stay
-                        return np.array([0.9, 0.1])
-                    else:  # CD - bad, shift
-                        return np.array([0.1, 0.9])
-                else:  # They defected
-                    # DC is good (exploited), DD is bad (mutual defection)
-                    if context.joint_outcome in [2]:  # DC - good, stay
-                        return np.array([0.1, 0.9])
-                    else:  # DD - bad, shift
-                        return np.array([0.9, 0.1])
-
-        elif hypothesis == OpponentHypothesis.RATIONAL:
-            # Rational agent with precision β
-            # Simplified: compute expected payoffs and softmax
-            # If I defected, rational opponent should defect (Nash equilibrium)
-            # If I cooperated, rational opponent might cooperate if empathetic
-            β = params
-            if context.my_last_action is None:
-                # First round: slight preference for defection (Nash)
-                G = np.array([-3.0, -3.5])  # Slight preference for C in uncertainty
-            elif context.my_last_action == 0:  # I cooperated
-                # Opponent EFE: C gives them 3, D gives them 5
-                G = np.array([-3.0, -5.0])  # D is better for them
-            else:  # I defected
-                # Opponent EFE: C gives them 0, D gives them 1
-                G = np.array([0.0, -1.0])  # D is better
-
-            # Softmax
-            exp_g = np.exp(β * G)  # Note: G is already negative EFE
-            p = exp_g / np.sum(exp_g)
-            return p
-
-        else:
-            # Unknown hypothesis - uniform
-            return np.array([0.5, 0.5])
-
     def reliability(self) -> float:
-        """
-        Compute reliability from weight concentration.
-
-        Reliability is high when particles are concentrated on a few hypotheses.
-        Uses entropy-based confidence.
-
-        Returns:
-            Reliability score ∈ [0, 1]
-        """
+        """Compute reliability from weight concentration (entropy-based)."""
         entropy = self._weight_entropy()
         max_entropy = np.log(self.n_particles)
 
-        # Confidence: 1 when entropy is 0 (all weight on one particle)
         if max_entropy > 0:
             confidence = 1 - entropy / max_entropy
         else:
             confidence = 1.0
 
-        # Transform to reliability using sigmoid
-        # Center at 0.5 confidence, scale controls sharpness
-        reliability = sigmoid(confidence, center=0.5, scale=0.1)
-
-        return reliability
+        return sigmoid(confidence, center=0.5, scale=0.1)
 
     def _weight_entropy(self) -> float:
         """Compute entropy of particle weights."""
-        # Filter out zero weights
         nonzero = self.weights[self.weights > 1e-10]
         if len(nonzero) == 0:
-            return np.log(self.n_particles)  # Maximum entropy
+            return np.log(self.n_particles)
         return -np.sum(nonzero * np.log(nonzero))
 
     def _effective_sample_size(self) -> float:
@@ -324,75 +224,36 @@ class OpponentInversion:
         return 1.0 / np.sum(self.weights ** 2)
 
     def _resample(self):
-        """Resample particles using systematic resampling."""
-        # Systematic resampling
+        """Resample particles using systematic resampling with jitter."""
         positions = (np.arange(self.n_particles) + np.random.random()) / self.n_particles
         cumsum = np.cumsum(self.weights)
-
         indices = np.searchsorted(cumsum, positions)
         indices = np.clip(indices, 0, self.n_particles - 1)
 
-        # Resample
-        self.particle_types = self.particle_types[indices]
-        self.particle_params = self.particle_params[indices]
-
-        # Add small jitter to params
-        self.particle_params += np.random.normal(0, 0.1, self.n_particles)
-        self.particle_params = np.clip(self.particle_params, 0.1, 20.0)
+        # Resample profiles with jitter
+        new_profiles = []
+        for idx in indices:
+            old = self.profiles[idx]
+            new_profiles.append(BehavioralProfile(
+                alpha=old.alpha + np.random.normal(0, 0.1),
+                reciprocity=old.reciprocity + np.random.normal(0, 0.1),
+                beta=max(0.01, old.beta + np.random.normal(0, 0.1)),
+                lambda_j=np.clip(old.lambda_j + np.random.normal(0, 0.05), 0.0, 1.0),
+            ))
+        self.profiles = new_profiles
 
         # Reset weights
         self.weights = np.ones(self.n_particles) / self.n_particles
 
-    def get_type_distribution(self) -> Dict[OpponentHypothesis, float]:
-        """
-        Get posterior distribution over opponent types.
-
-        Returns:
-            Dictionary mapping hypothesis to probability
-        """
-        type_probs = {}
-        for i, h in enumerate(self.hypotheses):
-            mask = self.particle_types == i
-            type_probs[h] = np.sum(self.weights[mask])
-        return type_probs
-
-    def get_most_likely_type(self) -> Tuple[OpponentHypothesis, float]:
-        """
-        Get most likely opponent type and its probability.
-
-        Returns:
-            (hypothesis, probability)
-        """
-        type_probs = self.get_type_distribution()
-        best_type = max(type_probs, key=type_probs.get)
-        return best_type, type_probs[best_type]
-
-    def get_expected_beta(self) -> float:
-        """Get expected β parameter (for rational hypothesis)."""
-        return np.sum(self.weights * self.particle_params)
-
-    def is_reliable(self) -> bool:
-        """Check if current inference is reliable enough to trust."""
-        return self.reliability() >= self.reliability_threshold
-
     def predict_action(self, context: ObservationContext) -> np.ndarray:
         """Bayesian model-averaged prediction of opponent's next action.
-
-        Aggregates P(action | type) across all particles weighted by
-        their posterior probability.
-
-        Args:
-            context: Current observation context
 
         Returns:
             np.ndarray: [P(Cooperate), P(Defect)]
         """
         action_probs = np.zeros(2)
         for k in range(self.n_particles):
-            hypothesis = self.hypotheses[self.particle_types[k]]
-            probs = self._hypothesis_action_probs(
-                hypothesis, context, self.particle_params[k]
-            )
+            probs = self._particle_action_probs(k, context)
             action_probs += self.weights[k] * probs
         total = action_probs.sum()
         if total > 0:
@@ -401,10 +262,153 @@ class OpponentInversion:
             action_probs = np.array([0.5, 0.5])
         return action_probs
 
+    def get_profile_summary(self) -> Dict[str, float]:
+        """Get weighted summary statistics of behavioral profile parameters.
+
+        Returns:
+            Dictionary with mean and std of alpha, reciprocity, beta, lambda_j.
+        """
+        alphas = np.array([p.alpha for p in self.profiles])
+        reciprocities = np.array([p.reciprocity for p in self.profiles])
+        betas = np.array([p.beta for p in self.profiles])
+        lambdas = np.array([p.lambda_j for p in self.profiles])
+
+        mean_alpha = float(np.sum(self.weights * alphas))
+        mean_recip = float(np.sum(self.weights * reciprocities))
+        mean_beta = float(np.sum(self.weights * betas))
+        mean_lambda = float(np.sum(self.weights * lambdas))
+
+        return {
+            "mean_alpha": mean_alpha,
+            "mean_reciprocity": mean_recip,
+            "mean_beta": mean_beta,
+            "mean_lambda_j": mean_lambda,
+            "std_alpha": float(np.sqrt(np.sum(self.weights * (alphas - mean_alpha)**2))),
+            "std_reciprocity": float(np.sqrt(np.sum(self.weights * (reciprocities - mean_recip)**2))),
+            "std_beta": float(np.sqrt(np.sum(self.weights * (betas - mean_beta)**2))),
+            "std_lambda_j": float(np.sqrt(np.sum(self.weights * (lambdas - mean_lambda)**2))),
+        }
+
+    def get_mean_profile(self) -> BehavioralProfile:
+        """Get weighted mean behavioral profile."""
+        summary = self.get_profile_summary()
+        return BehavioralProfile(
+            alpha=summary["mean_alpha"],
+            reciprocity=summary["mean_reciprocity"],
+            beta=summary["mean_beta"],
+            lambda_j=summary["mean_lambda_j"],
+        )
+
+    def get_lambda_j_posterior(self) -> Dict[str, float]:
+        """Get posterior statistics for opponent empathy lambda_j.
+
+        Returns:
+            Dictionary with mean, std, and entropy of the lambda_j posterior.
+        """
+        lambdas = np.array([p.lambda_j for p in self.profiles])
+        mean = float(np.sum(self.weights * lambdas))
+        std = float(np.sqrt(np.sum(self.weights * (lambdas - mean)**2)))
+        entropy = self._lambda_j_entropy()
+
+        return {
+            "mean": mean,
+            "std": std,
+            "entropy": entropy,
+        }
+
+    def _lambda_j_entropy(self, weights: Optional[np.ndarray] = None) -> float:
+        """Compute entropy of lambda_j distribution using histogram approximation."""
+        if weights is None:
+            weights = self.weights
+        lambdas = np.array([p.lambda_j for p in self.profiles])
+
+        # Discretize into bins
+        n_bins = 10
+        bin_probs = np.zeros(n_bins)
+        for k in range(self.n_particles):
+            bin_idx = int(np.clip(lambdas[k] * n_bins, 0, n_bins - 1))
+            bin_probs[bin_idx] += weights[k]
+
+        # Normalize
+        total = bin_probs.sum()
+        if total < 1e-10:
+            return np.log(n_bins)
+        bin_probs /= total
+
+        # Shannon entropy
+        nonzero = bin_probs[bin_probs > 1e-10]
+        return -float(np.sum(nonzero * np.log(nonzero)))
+
+    def compute_epistemic_value(
+        self,
+        my_action: int,
+        context: Optional[ObservationContext],
+    ) -> float:
+        """Compute epistemic value (expected information gain about lambda_j).
+
+        G_epistemic(a_i) = -IG(a_i)
+
+        where IG(a_i) is the expected reduction in lambda_j entropy from
+        observing the opponent's *next-round* response, given that I play
+        a_i this round.
+
+        Key insight: cooperating is typically more epistemically valuable
+        because it better disambiguates opponent empathy. A selfish opponent
+        defects regardless; an empathetic opponent cooperates back. Against
+        defection, both types tend to defect.
+
+        Args:
+            my_action: My candidate action (0=C, 1=D)
+            context: Current observation context
+
+        Returns:
+            float: Negative expected information gain (lower = more informative)
+        """
+        # Current lambda_j entropy
+        H_prior = self._lambda_j_entropy()
+
+        # Build hypothetical next-round context (my_last_action = my_action)
+        next_context = ObservationContext(
+            my_last_action=my_action,
+            their_last_action=context.their_last_action if context else None,
+            joint_outcome=None,
+            round_number=(context.round_number + 1) if context else 1,
+        )
+
+        # For each possible next-round opponent response
+        expected_H_posterior = 0.0
+        for a_j_next in [0, 1]:  # C, D
+            # Compute marginal probability and hypothetical posterior weights
+            marginal_p = 0.0
+            hyp_weights = np.zeros(self.n_particles)
+            for k in range(self.n_particles):
+                probs = self._particle_action_probs(k, next_context)
+                likelihood_k = max(probs[a_j_next], 1e-10)
+                hyp_weights[k] = self.weights[k] * likelihood_k
+                marginal_p += self.weights[k] * probs[a_j_next]
+
+            if marginal_p < 1e-10:
+                continue
+
+            # Normalize hypothetical posterior
+            hyp_weights /= hyp_weights.sum()
+
+            # Compute lambda_j entropy under hypothetical posterior
+            H_post = self._lambda_j_entropy(hyp_weights)
+            expected_H_posterior += marginal_p * H_post
+
+        IG = H_prior - expected_H_posterior
+        return -IG  # Negative: lower EFE = better = more informative
+
+    def is_reliable(self) -> bool:
+        """Check if current inference is reliable enough to trust."""
+        return self.reliability() >= self.reliability_threshold
+
     def reset(self):
         """Reset inversion state."""
         self._initialize_particles()
         self.observation_history = []
+        self.my_cooperation_rate = 0.5
 
 
 class GatedToM:
@@ -414,58 +418,38 @@ class GatedToM:
     Smoothly interpolates between the static ToM prediction (prior) and the
     learned prediction from the particle filter (posterior), weighted by
     inversion reliability.
-
-    Low reliability  → static ToM (assumes selfish rational opponent)
-    High reliability → learned model (Bayesian model-averaged across particles)
     """
 
     def __init__(
         self,
-        tom: 'TheoryOfMind',  # Forward reference
+        tom: 'TheoryOfMind',
         inversion: OpponentInversion,
     ):
-        """
-        Initialize gated ToM.
-
-        Args:
-            tom: Theory of Mind module (static prior)
-            inversion: Opponent inversion module (learned posterior)
-        """
         self.tom = tom
         self.inversion = inversion
 
-    def predict_opponent_response(
+    def predict_opponent_action(
         self,
-        my_action: int,
         context: Optional[ObservationContext] = None,
     ) -> np.ndarray:
         """
-        Predict opponent response with reliability gating.
+        Predict opponent action with reliability gating.
 
-        Blends static ToM (prior) with learned inversion prediction (posterior):
-            q_gated = r * q_learned + (1 - r) * q_static_tom
-
-        Args:
-            my_action: My candidate action (0=C, 1=D)
-            context: Observation context for the learned prediction.
-                Required when reliability > 0 for meaningful results.
+        q_gated = r * q_learned + (1 - r) * q_static_tom
 
         Returns:
-            q(a_j | a_i) - gated distribution over opponent actions
+            q(a_j | h_t) - gated distribution over opponent actions
         """
         reliability = self.inversion.reliability()
 
-        # Static ToM prediction (prior)
-        tom_prediction = self.tom.predict_opponent_response(my_action)
+        tom_prediction = self.tom.predict_opponent_action()
         q_tom = tom_prediction.q_response
 
-        # Learned prediction from inversion (posterior)
         if context is not None:
             q_learned = self.inversion.predict_action(context)
         else:
-            q_learned = q_tom  # Fall back to static if no context
+            q_learned = q_tom
 
-        # Smooth interpolation based on reliability
         q_gated = reliability * q_learned + (1 - reliability) * q_tom
 
         return q_gated

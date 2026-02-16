@@ -323,12 +323,13 @@ class ToMEmpatheticAgent:
             use_epistemic_value=False,
         )
 
-        # Initialize Social EFE computer
+        # Initialize Social EFE computer (inversion added after it's created below)
         self.social_efe = SocialEFE(
             tom=self.tom,
             empathy_factor=empathy_factor,
             beta_self=beta_self,
         )
+        # Note: inversion reference will be set after inversion initialization
 
         # Initialize opponent inversion (particle-based)
         if use_inversion:
@@ -340,6 +341,8 @@ class ToMEmpatheticAgent:
                 tom=self.tom,
                 inversion=self.inversion,
             )
+            # Wire inversion into SocialEFE for epistemic value computation
+            self.social_efe.inversion = self.inversion
         else:
             self.inversion = None
             self.gated_tom = None
@@ -395,7 +398,15 @@ class ToMEmpatheticAgent:
         # 4. Build observation context for opponent prediction
         context = self._build_observation_context(t) if t > 0 else None
 
-        # 5. Compute action distribution (myopic or sophisticated)
+        # 5. Update opponent's belief about my policy from history
+        if len(self.action_history) > 0:
+            coop_rate = sum(1 for a in self.action_history if a == COOPERATE) / len(self.action_history)
+            self.tom.update_my_policy_belief(coop_rate)
+            # Also update inversion's cooperation rate for empathy feature
+            if self.use_inversion and self.inversion is not None:
+                self.inversion.my_cooperation_rate = coop_rate
+
+        # 6. Compute action distribution (myopic or sophisticated)
         my_beliefs = None
         if self.self_agent.qs is not None and len(self.self_agent.qs) > 0:
             my_beliefs = self.self_agent.qs[0]
@@ -417,16 +428,16 @@ class ToMEmpatheticAgent:
             G_social = plan_info["G_policies"]
             info = plan_info
         else:
-            # Myopic: single-step social EFE (existing path)
-            q_response_overrides = None
+            # Myopic: single-step social EFE
+            # Opponent prediction is history-conditioned q(a_j|h_t),
+            # same for all candidate actions (simultaneous move)
+            q_response_override = None
             if self.use_inversion and t > 0:
-                q_response_overrides = {
-                    a: self.gated_tom.predict_opponent_response(a, context)
-                    for a in [COOPERATE, DEFECT]
-                }
+                q_response_override = self.gated_tom.predict_opponent_action(context)
             G_social, info = self.social_efe.compute_all_actions(
                 my_beliefs=my_beliefs,
-                q_response_overrides=q_response_overrides,
+                q_response_override=q_response_override,
+                context=context,
             )
             q_action = tom_softmax(-G_social, temperature=1.0/self.beta_self)
 
@@ -457,8 +468,9 @@ class ToMEmpatheticAgent:
         if self.use_inversion:
             step_results["inversion"] = {
                 "reliability": self.inversion.reliability(),
-                "type_distribution": self.inversion.get_type_distribution(),
-                "most_likely_type": self.inversion.get_most_likely_type(),
+                "profile_summary": self.inversion.get_profile_summary(),
+                "mean_profile": self.inversion.get_mean_profile(),
+                "lambda_j_belief": self.inversion.get_lambda_j_posterior(),
             }
 
         return step_results
@@ -543,9 +555,9 @@ class ToMEmpatheticAgent:
             return self.inversion.reliability()
         return 1.0  # Assume reliable if no inversion
 
-    def get_opponent_type_belief(self) -> Dict:
-        """Get current belief over opponent types."""
+    def get_opponent_profile(self) -> Dict:
+        """Get current inferred opponent behavioral profile."""
         if self.use_inversion:
-            return self.inversion.get_type_distribution()
+            return self.inversion.get_profile_summary()
         return {}
             

@@ -7,7 +7,7 @@ from empathy.prisoners_dilemma.tom import (
     TheoryOfMind,
     SocialEFE,
     OpponentInversion,
-    OpponentHypothesis,
+    BehavioralProfile,
 )
 from empathy.prisoners_dilemma.tom.inversion import ObservationContext, InversionState
 from empathy.prisoners_dilemma.tom.tom_core import COOPERATE, DEFECT, ToMPrediction
@@ -16,36 +16,42 @@ from empathy.prisoners_dilemma.tom.tom_core import COOPERATE, DEFECT, ToMPredict
 class TestTheoryOfMind:
     """Tests for TheoryOfMind class."""
 
-    def test_predict_opponent_response_returns_distribution(self):
+    def test_predict_opponent_action_returns_distribution(self):
         """ToM should return a valid probability distribution."""
-        # Create a simple mock for other_model
         class MockAgent:
             qs = [np.array([0.5, 0.5])]
             beta = 4.0
 
         tom = TheoryOfMind(other_model=MockAgent(), beta_other=4.0)
-        prediction = tom.predict_opponent_response(my_action=COOPERATE)
+        prediction = tom.predict_opponent_action()
 
         assert isinstance(prediction, ToMPrediction)
         assert len(prediction.q_response) == 2
         assert np.isclose(np.sum(prediction.q_response), 1.0)
         assert all(p >= 0 for p in prediction.q_response)
 
-    def test_defection_more_likely_against_defector(self):
-        """Opponent should be more likely to defect if I defect."""
+    def test_prediction_depends_on_believed_policy(self):
+        """Opponent prediction should change based on believed policy."""
         class MockAgent:
             qs = [np.array([0.5, 0.5])]
             beta = 4.0
 
         tom = TheoryOfMind(other_model=MockAgent(), beta_other=4.0)
 
-        pred_vs_cooperate = tom.predict_opponent_response(my_action=COOPERATE)
-        pred_vs_defect = tom.predict_opponent_response(my_action=DEFECT)
+        # If opponent believes I always cooperate
+        tom.update_my_policy_belief(1.0)
+        pred_vs_cooperator = tom.predict_opponent_action()
 
-        # If I defect, opponent's best response is to defect (gets 1 vs 0)
-        # If I cooperate, opponent's best response is to defect (gets 5 vs 3)
-        # But defection should be more pronounced against a defector
-        assert pred_vs_defect.q_response[DEFECT] >= pred_vs_cooperate.q_response[DEFECT] * 0.5
+        # If opponent believes I always defect
+        tom.update_my_policy_belief(0.0)
+        pred_vs_defector = tom.predict_opponent_action()
+
+        # Opponent should defect more against a known defector
+        # (payoff 1 vs 0 for D vs C when I defect)
+        # vs against a cooperator (payoff 5 vs 3 for D vs C)
+        # Both predict defection, but with different magnitudes
+        assert pred_vs_defector.q_response[DEFECT] > 0.5
+        assert pred_vs_cooperator.q_response[DEFECT] > 0.5
 
 
 class TestSocialEFE:
@@ -66,7 +72,32 @@ class TestSocialEFE:
         assert isinstance(info, dict)
         assert "G_self" in info
         assert "G_other_expected" in info
+        assert "G_pragmatic" in info
+        assert "G_epistemic" in info
         assert "empathy_factor" in info
+
+    def test_epistemic_value_included_with_inversion(self):
+        """Social EFE should include epistemic value when inversion is provided."""
+        class MockAgent:
+            qs = [np.array([0.5, 0.5])]
+            beta = 4.0
+
+        np.random.seed(42)
+        tom = TheoryOfMind(other_model=MockAgent(), beta_other=4.0)
+        inversion = OpponentInversion(n_particles=30)
+        social = SocialEFE(tom=tom, empathy_factor=0.5, inversion=inversion)
+
+        context = ObservationContext(
+            my_last_action=COOPERATE,
+            their_last_action=COOPERATE,
+            joint_outcome=0,
+            round_number=5,
+        )
+
+        G, info = social.compute(my_action=COOPERATE, context=context)
+
+        assert info["G_epistemic"] != 0.0  # Should have nonzero epistemic value
+        assert info["G_pragmatic"] != 0.0  # Pragmatic should also be nonzero
 
     def test_empathy_factor_affects_efe(self):
         """Different empathy factors should produce different EFE values."""
@@ -136,21 +167,90 @@ class TestOpponentInversion:
 
         assert 0.0 <= reliability <= 1.0
 
-    def test_type_distribution_sums_to_one(self):
-        """Type distribution should be a valid probability distribution."""
+    def test_profile_summary_has_expected_keys(self):
+        """Profile summary should contain mean and std for all parameters."""
         inversion = OpponentInversion(n_particles=30)
 
-        type_dist = inversion.get_type_distribution()
+        summary = inversion.get_profile_summary()
 
-        total_prob = sum(type_dist.values())
-        assert np.isclose(total_prob, 1.0)
+        assert "mean_alpha" in summary
+        assert "mean_reciprocity" in summary
+        assert "mean_beta" in summary
+        assert "mean_lambda_j" in summary
+        assert "std_alpha" in summary
+        assert "std_reciprocity" in summary
+        assert "std_beta" in summary
+        assert "std_lambda_j" in summary
+
+    def test_lambda_j_posterior_returns_statistics(self):
+        """Lambda_j posterior should return mean, std, and entropy."""
+        inversion = OpponentInversion(n_particles=30)
+
+        posterior = inversion.get_lambda_j_posterior()
+
+        assert "mean" in posterior
+        assert "std" in posterior
+        assert "entropy" in posterior
+        assert 0.0 <= posterior["mean"] <= 1.0
+        assert posterior["std"] >= 0.0
+        assert posterior["entropy"] >= 0.0
+
+    def test_epistemic_value_returns_float(self):
+        """Epistemic value should return a float for each action."""
+        np.random.seed(42)
+        inversion = OpponentInversion(n_particles=30)
+
+        context = ObservationContext(
+            my_last_action=COOPERATE,
+            their_last_action=COOPERATE,
+            joint_outcome=0,
+            round_number=5,
+        )
+
+        ev_coop = inversion.compute_epistemic_value(COOPERATE, context)
+        ev_defect = inversion.compute_epistemic_value(DEFECT, context)
+
+        assert isinstance(ev_coop, float)
+        assert isinstance(ev_defect, float)
+        # Epistemic values should be non-positive (IG >= 0)
+        assert ev_coop <= 0.01  # Small tolerance for numerical noise
+        assert ev_defect <= 0.01
+
+    def test_epistemic_value_differs_by_action(self):
+        """Cooperation and defection should have different epistemic values."""
+        np.random.seed(42)
+        inversion = OpponentInversion(n_particles=50)
+
+        # Give some observations to create a non-uniform posterior
+        for t in range(5):
+            ctx = ObservationContext(
+                my_last_action=COOPERATE,
+                their_last_action=COOPERATE if t > 0 else None,
+                joint_outcome=0 if t > 0 else None,
+                round_number=t + 1,
+            )
+            inversion.update(observed_action=COOPERATE, context=ctx)
+
+        context = ObservationContext(
+            my_last_action=COOPERATE,
+            their_last_action=COOPERATE,
+            joint_outcome=0,
+            round_number=6,
+        )
+
+        ev_coop = inversion.compute_epistemic_value(COOPERATE, context)
+        ev_defect = inversion.compute_epistemic_value(DEFECT, context)
+
+        # They should differ (different next-round contexts)
+        assert ev_coop != ev_defect
 
     def test_convergence_on_consistent_opponent(self):
-        """Inversion should converge when opponent is consistent."""
+        """Inversion should converge toward cooperative profile for ALLC opponent."""
+        np.random.seed(42)
         inversion = OpponentInversion(n_particles=100)
 
         # Simulate always-cooperate opponent
-        for t in range(10):
+        for t in range(20):
             context = ObservationContext(
                 my_last_action=COOPERATE,
                 their_last_action=COOPERATE if t > 0 else None,
@@ -159,12 +259,18 @@ class TestOpponentInversion:
             )
             inversion.update(observed_action=COOPERATE, context=context)
 
-        # Should have increased probability on ALWAYS_COOPERATE
-        type_dist = inversion.get_type_distribution()
-        always_c_prob = type_dist.get(OpponentHypothesis.ALWAYS_COOPERATE, 0)
+        # After 20 cooperations, mean alpha should be positive
+        # (cooperation bias should be high for ALLC opponent)
+        summary = inversion.get_profile_summary()
+        assert summary["mean_alpha"] > 0.0, f"Expected positive alpha, got {summary['mean_alpha']}"
 
-        # After 10 cooperations, should have significant belief in always_cooperate
-        assert always_c_prob > 0.2  # Relaxed threshold due to stochasticity
+        # Prediction should favor cooperation
+        predict_ctx = ObservationContext(
+            my_last_action=COOPERATE, their_last_action=COOPERATE,
+            joint_outcome=0, round_number=21,
+        )
+        probs = inversion.predict_action(predict_ctx)
+        assert probs[COOPERATE] > 0.6, f"Expected P(C) > 0.6, got {probs[COOPERATE]}"
 
 
 class TestIntegration:

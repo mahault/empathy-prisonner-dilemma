@@ -2,9 +2,11 @@
 """
 Figure 4: Learning convergence and cooperation with/without opponent modelling.
 
-Panel A: Opponent type posterior convergence — shows the particle filter
-         converging to the correct opponent type over rounds.
-Panel B: Cooperation rate with learning vs static ToM — shows how wiring
+Panel A: Parametric profile convergence — shows the particle filter's inferred
+         alpha (cooperation bias) and reciprocity converging over rounds when
+         facing a cooperative opponent.
+Panel B: Parametric profile convergence — same, facing a selfish opponent.
+Panel C: Cooperation rate with learning vs static ToM — shows how wiring
          the learned opponent model into action selection affects cooperation.
 
 Key finding: Learning raises the cooperation threshold from λ≈0.2 to λ≈0.4.
@@ -29,7 +31,6 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from pymdp.utils import obj_array, obj_array_uniform
 from empathy.prisoners_dilemma import ToMEmpatheticAgent, Environment
-from empathy.prisoners_dilemma.tom.inversion import OpponentHypothesis
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -83,7 +84,7 @@ def run_traced(lambda_i, lambda_j, T=100, seed=42, use_inversion=False):
     actions = [0, 0]
 
     # Track inversion state per timestep
-    type_history = []  # list of dicts {OpponentHypothesis: float}
+    profile_history = []  # list of dicts with mean/std of alpha, reciprocity, beta
     reliability_history = []
 
     for t in range(T):
@@ -100,16 +101,16 @@ def run_traced(lambda_i, lambda_j, T=100, seed=42, use_inversion=False):
 
         # Capture inversion state
         if use_inversion and ag_i.inversion is not None:
-            type_history.append(ag_i.inversion.get_type_distribution())
+            profile_history.append(ag_i.inversion.get_profile_summary())
             reliability_history.append(ag_i.inversion.reliability())
         else:
-            type_history.append(None)
+            profile_history.append(None)
             reliability_history.append(None)
 
     return dict(
         actions_i=act_i,
         actions_j=act_j,
-        type_history=type_history,
+        profile_history=profile_history,
         reliability_history=reliability_history,
     )
 
@@ -139,53 +140,54 @@ def main():
     print(f"Figure 4: Learning convergence  |  T={T}  seeds={ns}")
     print("=" * 60)
 
-    # ── Panel A: Opponent type posterior convergence ────────────────────
+    # ── Panel A & B: Parametric profile convergence ──────────────────────
     # Two conditions: facing cooperative (λ=0.7) vs selfish (λ=0.1) opponent
-    print("\n--- Panel A: Type posterior convergence ---")
+    print("\n--- Panels A & B: Profile parameter convergence ---")
 
-    panel_a_conditions = [
+    panel_ab_conditions = [
         {"label": r"Facing $\lambda_j$=0.7 (cooperative)", "lambda_j": 0.7},
         {"label": r"Facing $\lambda_j$=0.1 (selfish)", "lambda_j": 0.1},
     ]
 
-    # Use a single representative seed for clear convergence traces
-    panel_a_results = {}
-    for cond in panel_a_conditions:
+    panel_ab_results = {}
+    param_keys = ["mean_alpha", "mean_reciprocity", "mean_beta",
+                  "std_alpha", "std_reciprocity", "std_beta"]
+
+    for cond in panel_ab_conditions:
         lj = cond["lambda_j"]
         print(f"  Running lambda_i=0.5 vs lambda_j={lj} ...")
-        # Average type posteriors across seeds for smoother curves
-        all_type_histories = []
+        all_profile_histories = []
         for s in range(ns):
             result = run_traced(0.5, lj, T=T, seed=s, use_inversion=True)
-            all_type_histories.append(result["type_history"])
+            all_profile_histories.append(result["profile_history"])
 
-        # Aggregate: for each hypothesis, average P(type) across seeds
-        hypothesis_names = list(all_type_histories[0][1].keys())  # skip t=0 (None for update)
-        avg_posteriors = {}
-        for hyp in hypothesis_names:
+        # Aggregate: for each parameter, compute mean and std across seeds
+        avg_params = {}
+        std_params = {}
+        for key in param_keys:
             vals = np.zeros((ns, T))
             for s in range(ns):
                 for t in range(T):
-                    th = all_type_histories[s][t]
-                    if th is not None:
-                        vals[s, t] = th.get(hyp, 0.0)
+                    ph = all_profile_histories[s][t]
+                    if ph is not None:
+                        vals[s, t] = ph[key]
                     else:
-                        vals[s, t] = 1.0 / len(hypothesis_names)  # uniform prior
-            avg_posteriors[hyp] = np.mean(vals, axis=0)
+                        vals[s, t] = 0.0  # prior mean
+            avg_params[key] = np.mean(vals, axis=0)
+            std_params[key] = np.std(vals, axis=0)
 
-        panel_a_results[lj] = avg_posteriors
-        # Print convergence
-        final = {h.value: avg_posteriors[h][-1] for h in hypothesis_names}
-        print(f"    Final posteriors: {final}")
+        panel_ab_results[lj] = {"mean": avg_params, "std": std_params}
+        print(f"    Final alpha: {avg_params['mean_alpha'][-1]:.2f} "
+              f"± {avg_params['std_alpha'][-1]:.2f}")
+        print(f"    Final reciprocity: {avg_params['mean_reciprocity'][-1]:.2f} "
+              f"± {avg_params['std_reciprocity'][-1]:.2f}")
 
-    # ── Panel B: Cooperation with learning vs static ───────────────────
-    # Asymmetric: fix lambda_j=0.7 (cooperative), sweep lambda_i
-    # This shows the threshold effect: learning + low empathy → exploitation
-    print("\n--- Panel B: Learning vs static ToM (asymmetric) ---")
+    # ── Panel C: Cooperation with learning vs static ───────────────────
+    print("\n--- Panel C: Learning vs static ToM (asymmetric) ---")
 
     lambda_j_fixed = 0.7
     lambda_i_values_b = [0.2, 0.3, 0.5, 0.7]
-    panel_b_results = {}
+    panel_c_results = {}
 
     for li in lambda_i_values_b:
         print(f"  lambda_i={li} vs lambda_j={lambda_j_fixed}")
@@ -199,7 +201,7 @@ def main():
             arr = np.array(cc_per_seed)
             mu = np.nanmean(arr, axis=0)
             sd = np.nanstd(arr, axis=0)
-            panel_b_results[(li, label)] = (mu, sd)
+            panel_c_results[(li, label)] = (mu, sd)
             cc_mean = np.nanmean([np.mean((tr["actions_i"] == 0) & (tr["actions_j"] == 0))
                                   for tr in traces])
             print(f"    {label:>8}: CC = {cc_mean:.3f}")
@@ -209,51 +211,53 @@ def main():
 
     t_ax = np.arange(T)
 
-    # --- Panel A-left: facing cooperative opponent ---
+    # --- Panel A: Profile convergence — facing cooperative opponent ---
     ax = axes[0]
     lj = 0.7
-    posteriors = panel_a_results[lj]
-    hyp_colors = {
-        OpponentHypothesis.ALWAYS_COOPERATE: "#2ecc71",
-        OpponentHypothesis.ALWAYS_DEFECT: "#e74c3c",
-        OpponentHypothesis.TIT_FOR_TAT: "#3498db",
-        OpponentHypothesis.WIN_STAY_LOSE_SHIFT: "#9b59b6",
-        OpponentHypothesis.RANDOM: "#95a5a6",
-    }
-    for hyp, color in hyp_colors.items():
-        if hyp in posteriors:
-            ax.plot(t_ax, posteriors[hyp], color=color, lw=2, label=hyp.value)
+    data = panel_ab_results[lj]
+    param_colors = {"mean_alpha": "#2ecc71", "mean_reciprocity": "#3498db", "mean_beta": "#e74c3c"}
+    param_labels = {"mean_alpha": r"$\alpha$ (coop. bias)",
+                    "mean_reciprocity": r"$\rho$ (reciprocity)",
+                    "mean_beta": r"$\beta$ (precision)"}
+
+    for key, color in param_colors.items():
+        mu = data["mean"][key]
+        sd = data["std"][key]
+        ax.plot(t_ax, mu, color=color, lw=2, label=param_labels[key])
+        ax.fill_between(t_ax, mu - sd, mu + sd, color=color, alpha=0.15)
+    ax.axhline(0, color="gray", lw=0.5, ls="--")
     ax.set_xlabel("Round", fontsize=12)
-    ax.set_ylabel("P(opponent type)", fontsize=12)
-    ax.set_title(r"A.  Type inference — facing $\lambda_j$=0.7",
+    ax.set_ylabel("Parameter value", fontsize=12)
+    ax.set_title(r"A.  Profile inference — facing $\lambda_j$=0.7",
                  fontsize=13, fontweight="bold")
-    ax.set_ylim(-0.05, 1.05)
-    ax.legend(fontsize=8, loc="center right")
+    ax.legend(fontsize=9, loc="best")
     ax.grid(True, alpha=0.3)
 
-    # --- Panel A-right: facing selfish opponent ---
+    # --- Panel B: Profile convergence — facing selfish opponent ---
     ax = axes[1]
     lj = 0.1
-    posteriors = panel_a_results[lj]
-    for hyp, color in hyp_colors.items():
-        if hyp in posteriors:
-            ax.plot(t_ax, posteriors[hyp], color=color, lw=2, label=hyp.value)
+    data = panel_ab_results[lj]
+    for key, color in param_colors.items():
+        mu = data["mean"][key]
+        sd = data["std"][key]
+        ax.plot(t_ax, mu, color=color, lw=2, label=param_labels[key])
+        ax.fill_between(t_ax, mu - sd, mu + sd, color=color, alpha=0.15)
+    ax.axhline(0, color="gray", lw=0.5, ls="--")
     ax.set_xlabel("Round", fontsize=12)
-    ax.set_ylabel("P(opponent type)", fontsize=12)
-    ax.set_title(r"B.  Type inference — facing $\lambda_j$=0.1",
+    ax.set_ylabel("Parameter value", fontsize=12)
+    ax.set_title(r"B.  Profile inference — facing $\lambda_j$=0.1",
                  fontsize=13, fontweight="bold")
-    ax.set_ylim(-0.05, 1.05)
-    ax.legend(fontsize=8, loc="center right")
+    ax.legend(fontsize=9, loc="best")
     ax.grid(True, alpha=0.3)
 
     # --- Panel C: cooperation with/without learning (asymmetric) ---
     ax = axes[2]
-    colors_b = {0.2: "#e67e22", 0.3: "#e74c3c", 0.5: "#3498db", 0.7: "#2ecc71"}
+    colors_c = {0.2: "#e67e22", 0.3: "#e74c3c", 0.5: "#3498db", 0.7: "#2ecc71"}
 
     for li in lambda_i_values_b:
-        col = colors_b[li]
-        mu_s, sd_s = panel_b_results[(li, "static")]
-        mu_l, sd_l = panel_b_results[(li, "learned")]
+        col = colors_c[li]
+        mu_s, sd_s = panel_c_results[(li, "static")]
+        mu_l, sd_l = panel_c_results[(li, "learned")]
 
         ax.plot(t_ax, mu_s, color=col, lw=2, linestyle="--", alpha=0.7,
                 label=rf"$\lambda_i$={li} static")
@@ -280,8 +284,8 @@ def main():
     print(f"\n--- Cooperation Summary (learning vs static, lambda_j={lambda_j_fixed}) ---")
     print(f"  {'lambda_i':>10}  {'static':>8}  {'learned':>8}  {'diff':>8}")
     for li in lambda_i_values_b:
-        mu_s = np.nanmean(panel_b_results[(li, "static")][0])
-        mu_l = np.nanmean(panel_b_results[(li, "learned")][0])
+        mu_s = np.nanmean(panel_c_results[(li, "static")][0])
+        mu_l = np.nanmean(panel_c_results[(li, "learned")][0])
         print(f"  {li:10.1f}  {mu_s:8.3f}  {mu_l:8.3f}  {mu_l - mu_s:+8.3f}")
 
     print("=" * 60)

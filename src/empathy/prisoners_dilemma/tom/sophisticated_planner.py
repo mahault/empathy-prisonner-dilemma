@@ -5,8 +5,9 @@ Implements planning via policy enumeration and forward rollout:
 2. For each policy, roll forward H steps accumulating social EFE
 3. Select action by marginalizing the softmax policy distribution to the first action
 
-Ported from the alignment experiments EmpathicLavaPlanner architecture
-(si_empathy_lava.py), simplified for the binary-action PD setting.
+Opponent predictions are history-conditioned q(a_j | h_t) for simultaneous
+moves: the opponent's action distribution does not depend on the agent's
+within-round action choice.
 """
 
 import numpy as np
@@ -26,9 +27,9 @@ class SophisticatedPlanner:
       G(pi) = (1/H) * sum_t [ (1-lambda)*G_self_t + lambda*G_other_t ]
 
     where at each step t:
-      - Opponent response q(a_j | a_i^t) is predicted via OpponentSimulator
+      - Opponent action q(a_j | h_t) is predicted via OpponentSimulator
       - G_self_t = -E[payoff_i(a_i^t, a_j)]
-      - G_other_t = E[G_j(a_j | a_i^t)] (opponent's expected EFE)
+      - G_other_t = E[G_j(a_j)] (opponent's expected EFE)
 
     Action selection: marginalize softmax(-beta * G(pi)) to the first action.
     """
@@ -59,7 +60,7 @@ class SophisticatedPlanner:
         """Evaluate a single H-step policy by forward rollout.
 
         For each step t in [0, H):
-          1. Predict opponent response: q(a_j | a_i^t)
+          1. Predict opponent action: q(a_j | h_t) (history-conditioned)
           2. Compute G_self_t = -E[payoff_i(a_i^t, a_j)]
           3. Compute G_other_t = E[-payoff_j(a_i^t, a_j)]
           4. Combine: G_t = (1-lambda)*G_self_t + lambda*G_other_t
@@ -74,8 +75,8 @@ class SophisticatedPlanner:
         lam = self.empathy_factor
 
         for t, my_action in enumerate(policy):
-            # Predict opponent response at this rollout step
-            q_response = self.opponent_sim.predict_response(my_action, step=t)
+            # Predict opponent action at this rollout step (history-conditioned)
+            q_response = self.opponent_sim.predict_response(step=t)
 
             # My EFE: expected negative payoff
             G_self = 0.0
