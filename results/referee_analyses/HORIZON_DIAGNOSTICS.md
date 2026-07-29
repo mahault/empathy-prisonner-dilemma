@@ -146,6 +146,66 @@ should be read as an indication that in-rollout learning can produce a small
 negative effect, not as a calibrated estimate. The direction of travel across
 all three fidelity fixes was toward zero.
 
+## Root cause: the static ToM predicts unconditional defection
+
+The obvious question about the tables above is why the horizon effect is
+*exactly* zero rather than merely small. Two candidate explanations were
+tested.
+
+**Rejected: sluggish partner memory.** The partner's belief about my strategy
+is a running average over the whole history, so one simulated action moves it
+by 1/n. Plausible bottleneck, but replacing it with exponential recency
+weighting does not unlock the horizon (`--mode memory`). Even at alpha = 0.9,
+essentially last-action memory, lambda=0.3 gives -0.0075 and lambda=0.5 gives
+exactly 0.0000.
+
+**Confirmed: the predicted partner never responds, because it is modelled as
+selfish.** The static ToM computes the partner's expected free energy as
+
+    G_j(a_j) = - sum_{a_i} pi_i(a_i) * payoff_j(a_i, a_j)
+
+with no empathy term and no reciprocity term. Defection therefore strictly
+dominates for the partner at every value of my cooperation rate p:
+
+| p (partner's belief about my cooperation) | G_j(C) | G_j(D) | D better by |
+|---|---|---|---|
+| 0.0 | 0.00 | -1.00 | +1.00 |
+| 0.5 | -1.50 | -3.00 | +1.50 |
+| 1.0 | -3.00 | -5.00 | +2.00 |
+
+Passed through the softmax this yields a predicted partner cooperation
+probability of **0.03% to 1.8%**, and the residual dependence runs the *wrong*
+way: the more I am believed to cooperate, the less likely the partner is
+predicted to cooperate, because exploiting a cooperator pays better.
+
+So under static ToM the agent believes, with near certainty, that its partner
+will defect no matter what it does. There is no shadow of the future to plan
+over. Every candidate policy faces the identical predicted partner, which is
+exactly the condition under which G(pi) decomposes additively, the policy
+softmax factorises, and the planner collapses to myopic-at-beta/H. The 1/H
+averaging then converts that degeneracy into a smooth monotone "erosion" trend
+that looks precisely like the hypothesis being tested.
+
+### A consequence worth taking seriously
+
+Under static ToM the agents cooperate roughly 77% of rounds at lambda=0.3
+while predicting their partner cooperates about 1% of the time. The theory of
+mind is not mildly miscalibrated, it is almost maximally wrong, and cooperation
+happens anyway.
+
+That is a much stronger version of the paper's own central claim than the paper
+currently makes. Cooperation is not merely "not driven by" belief accuracy; it
+survives beliefs that are close to inverted. The agent cooperates *while
+expecting to be exploited*, purely because lambda weights the partner's
+outcome. It also explains the model-comparison null (ToM-only minus
+self-interested = +0.001) mechanically: the ToM prediction is a near-constant
+"they will defect", so adding it changes nothing.
+
+The static ToM's blind spot is specifically that it models the partner as
+purely self-interested. The particle-filter inversion carries lambda_j as a
+latent and can in principle infer an empathic partner. The horizon experiments
+all used the static path.
+
 ## What this invalidates
 
 1. **"Increasing planning depth reduces cooperation at moderate empathy"**

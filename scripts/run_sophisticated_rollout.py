@@ -162,16 +162,33 @@ def q_partner_static(p_my_coop, depth=1):
 
 class SophisticatedAgent:
     def __init__(self, lam, horizon=1, beta=BETA_SELF, tom_depth=1,
-                 learn=True, n_particles=15, seed=0):
+                 learn=True, n_particles=15, seed=0, mem_alpha=None):
+        """mem_alpha controls how the partner's belief about my mixed strategy
+        tracks my behaviour.
+
+        None  : running average over the whole history, which is what the
+                shipped model does. One action moves it by 1/n, so by mid-game
+                a short rollout cannot shift it at all.
+        float : exponential recency weighting, p <- (1-alpha)*p + alpha*c.
+                Gives the partner a short memory, so recent behaviour matters.
+        """
         self.lam = lam
         self.H = horizon
         self.beta = beta
         self.tom_depth = tom_depth
         self.learn = learn
+        self.mem_alpha = mem_alpha
         self.belief = OpponentBelief(n_particles, np.random.default_rng(seed))
         self.my_last = None
         self.n_rounds = 0
-        self.n_coop = 0
+        self.p_my = 0.5
+
+    def _advance_p(self, p, n, a_i):
+        c = 1.0 if a_i == C else 0.0
+        if self.mem_alpha is None:
+            return (n * p + c) / (n + 1) if n > 0 else c
+        a = self.mem_alpha
+        return (1.0 - a) * p + a * c
 
     # -- prediction -----------------------------------------------------
     def _q_partner(self, belief, my_last, p_my_coop):
@@ -192,13 +209,12 @@ class SophisticatedAgent:
         return (1 - self.lam) * g_self + self.lam * g_other
 
     # -- recursion ------------------------------------------------------
-    def _G(self, t, belief, my_last, n, k):
+    def _G(self, t, belief, my_last, n, p_my):
         """Return array G[a_i] of expected free energy to go, depth t..H-1.
 
-        n, k track the round count and cooperation count so the partner's
-        belief about my mixed strategy moves with my simulated actions.
+        p_my is the partner's belief about my cooperation propensity, advanced
+        by my simulated actions so the rollout is genuinely policy-dependent.
         """
-        p_my = (k / n) if n > 0 else 0.5
         q_j = self._q_partner(belief, my_last, p_my)
         G = np.zeros(2)
         for a_i in (C, D):
@@ -210,7 +226,8 @@ class SophisticatedAgent:
                         continue
                     b2 = (belief.updated(a_j, my_last, p_my) if self.learn
                           else belief)
-                    G2 = self._G(t + 1, b2, a_i, n + 1, k + (1 if a_i == C else 0))
+                    G2 = self._G(t + 1, b2, a_i, n + 1,
+                                 self._advance_p(p_my, n, a_i))
                     pi2 = _soft(G2, self.beta)
                     fut += q_j[a_j] * float(np.dot(pi2, G2))
                 g = g + fut
@@ -218,24 +235,25 @@ class SophisticatedAgent:
         return G
 
     def act(self, rng):
-        G = self._G(0, self.belief, self.my_last, self.n_rounds, self.n_coop)
+        G = self._G(0, self.belief, self.my_last, self.n_rounds, self.p_my)
         pi = _soft(G, self.beta)
         return int(rng.random() > pi[C])  # C if u < pi[C]
 
     def observe(self, my_action, their_action):
         if self.learn:
-            p_my = (self.n_coop / self.n_rounds) if self.n_rounds > 0 else 0.5
-            self.belief = self.belief.updated(their_action, self.my_last, p_my)
+            self.belief = self.belief.updated(their_action, self.my_last, self.p_my)
+        self.p_my = self._advance_p(self.p_my, self.n_rounds, my_action)
         self.my_last = my_action
         self.n_rounds += 1
-        self.n_coop += 1 if my_action == C else 0
 
 
-def play(lam, H, T=100, seed=0, tom_depth=1, learn=True, partner_H=1):
+def play(lam, H, T=100, seed=0, tom_depth=1, learn=True, partner_H=1,
+         mem_alpha=None):
     rng = np.random.default_rng(seed)
-    ai = SophisticatedAgent(lam, H, tom_depth=tom_depth, learn=learn, seed=seed)
+    ai = SophisticatedAgent(lam, H, tom_depth=tom_depth, learn=learn, seed=seed,
+                            mem_alpha=mem_alpha)
     aj = SophisticatedAgent(lam, partner_H, tom_depth=tom_depth, learn=learn,
-                            seed=seed + 10_000)
+                            seed=seed + 10_000, mem_alpha=mem_alpha)
     cc = 0
     for _ in range(T):
         a_i = ai.act(rng)
@@ -300,15 +318,53 @@ def mode_sweep(args):
     print("\n  Manuscript claims roughly -0.19 at lambda=0.3 from H=1 to H=3.")
 
 
+def mode_memory(args):
+    """Why is the horizon effect exactly zero under static ToM?
+
+    Hypothesis: the partner's belief about me is a running average over the
+    whole history, so one simulated action moves it by 1/n. By mid-game a
+    4-step rollout cannot shift it, and there is nothing for lookahead to act
+    on. If that is the reason, giving the partner a short memory should make
+    the horizon matter immediately.
+    """
+    horizons = args.horizons
+    seeds = range(args.n_seeds)
+    print("=" * 72)
+    print("MEMORY: does partner recency-weighting unlock the horizon?")
+    print("=" * 72)
+    variants = [
+        ("running average over history (as shipped)", None),
+        ("exponential memory, alpha=0.3", 0.3),
+        ("exponential memory, alpha=0.6", 0.6),
+        ("exponential memory, alpha=0.9 (near last-action)", 0.9),
+    ]
+    for lam in (0.3, 0.5):
+        print(f"\n  lambda = {lam}   (static ToM, no learning)")
+        print(f"  {'partner memory':<46}"
+              + "".join(f"{'H='+str(h):>9}" for h in horizons) + f"{'H4-H1':>9}")
+        for label, a in variants:
+            vals = [mean_cc(lam, H, seeds, T=args.T, learn=False, tom_depth=1,
+                            mem_alpha=a) for H in horizons]
+            print(f"  {label:<46}" + "".join(f"{v:>9.4f}" for v in vals)
+                  + f"{vals[-1]-vals[0]:>+9.4f}")
+    print("\n  A non-zero last column with short memory would show that the flat")
+    print("  result is a property of the partner model, not of lookahead itself.")
+    print("  Sign matters: positive means anticipating retaliation supports")
+    print("  cooperation, negative means the manuscript's erosion.")
+
+
 def main():
     p = argparse.ArgumentParser(description="Full sophisticated-inference rollout")
-    p.add_argument("--mode", choices=["validate", "sweep"], default="sweep")
+    p.add_argument("--mode", choices=["validate", "sweep", "memory"],
+                   default="sweep")
     p.add_argument("--horizons", type=int, nargs="+", default=[1, 2, 3, 4])
     p.add_argument("--n_seeds", type=int, default=20)
     p.add_argument("--T", type=int, default=100)
     a = p.parse_args()
     if a.mode == "validate":
         mode_validate(a)
+    elif a.mode == "memory":
+        mode_memory(a)
     else:
         mode_sweep(a)
     return 0
