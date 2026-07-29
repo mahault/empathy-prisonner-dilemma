@@ -96,6 +96,56 @@ horizons) could behave differently, and the codebase does contain an unused
 `DepthTwoToM`. What we can say is that implementing what the paper claims to
 implement yields no effect.
 
+## A full sophisticated-inference treatment does not rescue it either
+
+`scripts/run_sophisticated_rollout.py` implements what the previous section
+listed as untested: expectimax branching over the partner's responses (not a
+single simulated path), particle-posterior updating *inside* the rollout so the
+agent plans over what it will come to believe, properly implemented depth-2 ToM
+(the shipped `DepthTwoToM` is a stub that calls `super()` and is depth-1), and
+accumulated rather than averaged EFE.
+
+The decision layer is re-implemented standalone for speed. It is validated
+against the shipped myopic agent first: 0.7705 / 0.9945 / 1.0000 versus the
+shipped 0.7820 / 0.9975 / 1.0000 at lambda = 0.3 / 0.5 / 0.7, a maximum gap of
+0.0115 against a per-seed s.e.m. of about 0.009.
+
+Mutual cooperation frequency, 20 seeds, T=100, partner myopic:
+
+| config | lambda | H=1 | H=2 | H=3 | H=4 | H4-H1 |
+|---|---|---|---|---|---|---|
+| depth-1 ToM, static | 0.3 | 0.7705 | 0.7700 | 0.7700 | 0.7700 | -0.0005 |
+| depth-1 ToM, static | 0.5 | 0.9945 | 0.9945 | 0.9945 | 0.9945 | 0.0000 |
+| depth-1 ToM, static | 0.7 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 0.0000 |
+| **depth-2 ToM**, static | 0.3 | 0.7565 | 0.7565 | 0.7565 | 0.7565 | **0.0000** |
+| **depth-2 ToM**, static | 0.5 | 0.9945 | 0.9945 | 0.9945 | 0.9945 | 0.0000 |
+| **depth-2 ToM**, static | 0.7 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 0.0000 |
+| learning in rollout | 0.3 | 0.2190 | 0.2100 | 0.1960 | 0.1975 | **-0.0215** |
+| learning in rollout | 0.5 | 0.9480 | 0.9495 | 0.9535 | 0.9525 | +0.0045 |
+| learning in rollout | 0.7 | 0.9995 | 0.9995 | 1.0000 | 1.0000 | +0.0005 |
+
+Reading:
+
+- **Depth-2 ToM changes the level, not the horizon dependence.** It moves
+  lambda=0.3 cooperation from 0.7705 to 0.7565 and then stays flat to four
+  decimals at every horizon. Recursive mentalising does not create a
+  planning-depth effect.
+- **Branching and belief updating are what can create one at all.** Only the
+  learning config moves with H, and only at lambda=0.3.
+- **Every fidelity improvement shrank it.** Learning in rollout gave -0.081
+  before the empathy shift and reliability gating were added to match the
+  shipped inversion model, and -0.0215 after. The manuscript reports -0.185.
+
+Fidelity caveat, stated plainly: the learning config reproduces the shipped
+agent at lambda = 0.5 (0.948 vs 0.987) and 0.7 (0.9995 vs 1.000) but *not* at
+lambda = 0.3 (0.219 vs 0.753), which is the sensitive cell. The most likely
+missing ingredient is the epistemic (expected information gain) term in the
+EFE, which the paper credits with producing "early cooperation as
+information-seeking" and which this standalone planner omits. So the -0.0215
+should be read as an indication that in-rollout learning can produce a small
+negative effect, not as a calibrated estimate. The direction of travel across
+all three fidelity fixes was toward zero.
+
 ## What this invalidates
 
 1. **"Increasing planning depth reduces cooperation at moderate empathy"**
