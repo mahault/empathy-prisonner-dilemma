@@ -237,6 +237,56 @@ def run_quadrants(T, n_seeds, out_dir):
     return results
 
 
+def run_verify(T, n_seeds, out_dir):
+    """Re-check the reported claims on seeds 100-119, independent of the run
+    reported in the paper (which uses seeds 0-19)."""
+    print("=" * 70)
+    print("VERIFICATION on independent seeds (100-119)")
+    print("=" * 70)
+    seeds = range(100, 100 + n_seeds)
+    failures = []
+
+    def check(name, cond, detail):
+        print(f"[{'PASS' if cond else 'FAIL'}] {name}: {detail}")
+        if not cond:
+            failures.append(name)
+
+    # 1. magnitude == precision, exactly, per seed
+    ok = True
+    for (w_s, w_o) in [(0.7, 0.3), (0.4, 0.6)]:
+        for c in (0.5, 2.0):
+            a = [run_weight_pair(w_s * c, w_o * c, T=T, seed=s, beta=4.0) for s in seeds]
+            b = [run_weight_pair(w_s, w_o, T=T, seed=s, beta=4.0 * c) for s in seeds]
+            ok &= all(abs(x.freq_CC - y.freq_CC) < 1e-12 for x, y in zip(a, b))
+    check("magnitude_is_precision", ok,
+          "scaling both weights by c == scaling beta by c, identical per seed")
+
+    # 2. equal-ratio cells agree once magnitude is matched
+    r1 = [run_weight_pair(0.4, 0.6, T=T, seed=s) for s in seeds]
+    r2 = [run_weight_pair(0.2, 0.3, T=T, seed=s, beta=8.0) for s in seeds]
+    check("ratio_determines_lambda",
+          all(abs(x.freq_CC - y.freq_CC) < 1e-12 for x, y in zip(r1, r2)),
+          "(0.4,0.6) at beta=4 == (0.2,0.3) at beta=8")
+
+    # 3. spite is more stably defecting than indifference
+    selfish = np.mean([run_weight_pair(1.0, 0.0, T=T, seed=s).freq_DD for s in seeds])
+    spite = np.mean([run_weight_pair(0.6, -0.4, T=T, seed=s).freq_DD for s in seeds])
+    pure = np.mean([run_weight_pair(0.0, -1.0, T=T, seed=s).freq_DD for s in seeds])
+    check("spite_exceeds_indifference", spite > selfish and pure >= spite,
+          f"DD selfish={selfish:.3f} < spite={spite:.3f} <= pure spite={pure:.3f}")
+
+    # 4. self-abnegation cooperates
+    abneg = np.mean([run_weight_pair(-0.4, 0.6, T=T, seed=s).freq_CC for s in seeds])
+    check("self_abnegation_cooperates", abneg > 0.9, f"CC={abneg:.3f}")
+
+    print()
+    if failures:
+        print(f"VERIFICATION FAILED: {failures}")
+        return False
+    print("ALL WEIGHT-SPACE CHECKS PASSED (seeds 100-119)")
+    return True
+
+
 def _save(results, path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
@@ -246,7 +296,8 @@ def _save(results, path: Path):
 
 def main():
     p = argparse.ArgumentParser(description="Referee 2: 2D self/other weights")
-    p.add_argument("--mode", choices=["ratio", "precision", "quadrants", "all"],
+    p.add_argument("--mode",
+                   choices=["ratio", "precision", "quadrants", "verify", "all"],
                    default="all")
     p.add_argument("--T", type=int, default=100)
     p.add_argument("--n_seeds", type=int, default=20)
@@ -261,8 +312,11 @@ def main():
         run_precision(args.T, args.n_seeds, out_dir)
     if args.mode in ("quadrants", "all"):
         run_quadrants(args.T, args.n_seeds, out_dir)
+    passed = True
+    if args.mode in ("verify", "all"):
+        passed = run_verify(args.T, args.n_seeds, out_dir)
     print(f"\nTotal time: {(datetime.now()-start).total_seconds()/60:.1f} min")
-    return 0
+    return 0 if passed else 1
 
 
 if __name__ == "__main__":
