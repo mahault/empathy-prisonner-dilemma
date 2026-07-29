@@ -3,12 +3,12 @@
 Manuscript: Empathy Modeling in Active Inference Agents
 Journal of the Royal Society Interface, decision 15 July 2026, revision due ~5 August 2026.
 
-Status 2026-07-28: APPLIED. The manuscript edits for all 8 Referee 1 points
-are live in the Overleaf project (main.tex), wrapped in a blue `\rev{}` macro
-for the tracked-changes version (set it to black for the clean copy). A LaTeX
-version of this letter is in the project as `response_to_reviewers.tex`.
-Referee 2 still pending — the review is in Empathy_Review_2026.pdf attached
-to the 15 Jul decision email and needs to be saved locally so it can be read.
+Status 2026-07-29: APPLIED, both referees. Manuscript edits for all 8 Referee 1
+points and all 6 Referee 2 points are live in the Overleaf project (main.tex),
+wrapped in a blue `\rev{}` macro for the tracked-changes version (set it to
+black for the clean copy). A LaTeX version of this letter is in the project as
+`response_to_reviewers.tex`. 12 new references added to main.bib. Compiles
+with 0 errors and no undefined references.
 
 Journal requirements checklist for resubmission:
 - [ ] This response document (point by point)
@@ -256,10 +256,72 @@ figure or table.]
 
 ## Referee 2
 
-> Please see attached for my review.
+Six substantive points (the review opens with a long, accurate summary and is
+positive overall).
 
-[PENDING — extract Empathy_Review_2026.pdf from the decision email
-(15 Jul 2026, manuscriptcentral.com) and respond point by point here.]
+### 1. How specific are the findings to FEP-AI vs deep Bayesian RL?
+
+Not specific. Any architecture separating a predictive model of the partner
+from the weighting of the partner's outcomes should reproduce the
+dissociation. CIRL (Hadfield-Menell et al. 2016) and empowerment
+(Salge & Polani 2017) are the neighbouring cases, both now cited. What active
+inference adds is a common currency: partner welfare, own preferences, and
+information value are all expected free energy, which is what makes the
+epistemic term and λ commensurable in one quantity. A deep Bayesian RL agent
+could implement the same trade-off but would reintroduce the exploration
+bonus and the other-regarding term as separate design choices.
+
+### 2. Why a bipolar scalar rather than separate self/other weights?
+
+New analysis, `scripts/run_referee2_weights.py`. Analytically, with
+G = w_self·G_self + w_other·G_other and softmax precision β,
+β(w_self·G_self + w_other·G_other) = β'[(1−λ)G_self + λG_other] where
+λ = w_other/(w_self+w_other) and β' = β(w_self+w_other). So on the positive
+quadrant the direction sets λ and the magnitude only rescales precision.
+Verified in simulation: scaling both weights by c reproduces the bipolar
+model at precision cβ **identically, seed for seed**; across a 5×5 grid
+cooperation is a function of the ratio.
+
+The 2D space does buy something outside that quadrant, now reported:
+negative w_other is spite and is behaviourally distinct from indifference
+(spiteful dyads (0.6,−0.4) reach DD on 99.9% of rounds, pure spite (0,−1) on
+100%, vs 96.5% for the self-interested agent (1,0)); negative w_self gives
+self-abnegation. Neither is reachable with λ ∈ [0,1]. This also connects to
+the psychopathy literature the referee cites.
+
+### 3. Biological bases of λ
+
+Added to Discussion with all four suggested references (Prosser et al. 2018
+Bayesian psychopathy; Wolf et al. 2015 and Maurer et al. 2022 uncinate
+fasciculus; Royo et al. 2025 primate tractography). Made specific rather than
+decorative: low λ with intact opponent modelling, exactly the profile the new
+model comparison isolates, is a first computational gloss on that phenotype.
+
+### 4. Structure learning and enduring prosocial orientations
+
+Added (Safron et al. 2023 value cores; Christov-Moore et al. 2023, 2025;
+Pae 2026). Anchors the response to Referee 1's point 4 and locates our own
+limitation: λ is exogenous, so we show what other-regarding valuation does
+but not where it comes from.
+
+### 5. Mechanism design / reputation
+
+Addressed in Discussion (Cieśla 2025). Our dyads are anonymous with private
+history, so defection costs nothing beyond the partner's response. Stated as
+expectation, not result: reputation should lower the empathy threshold by
+making defection costly in a way self-interested planning can represent,
+which turns it into a testable question of whether the institutional and
+empathic fixes are substitutes or complements.
+
+### 6. Could deeper temporal modelling alone give quasi-Kantian dispositions?
+
+Our existing data answers this, negatively for this setting. If patient
+self-interest sufficed, longer horizons should favour policies preserving
+long non-zero-sum interaction; we find the opposite, and the new payoff sweep
+shows the erosion is general. The rollouts compound the temptation margin
+rather than the relationship's continuation value. Framed as a scope
+condition, not a refutation: our games are finite, anonymous, and without
+partner choice. Goekoop & de Kleijn 2021 cited.
 
 ---
 

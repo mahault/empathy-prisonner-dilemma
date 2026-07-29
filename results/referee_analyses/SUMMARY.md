@@ -114,6 +114,47 @@ The earlier symmetric-planning variant (both agents at horizon H, payoff-
 aligned C, mean-cooperation metric, 25 seeds) is preserved in
 `horizon_results_symmetric.json`; its qualitative conclusions are the same.
 
+## Analysis 3 — Self/other weight space (Referee 2, point 2)
+
+`scripts/run_referee2_weights.py`. Referee 2 asked why empathic concern is a
+single bipolar scalar rather than separate self- and other-concern weights.
+
+Analytically, with G = w_self·G_self + w_other·G_other and softmax precision β,
+
+    β(w_self·G_self + w_other·G_other)
+      = β' [(1−λ)G_self + λ·G_other],
+    λ = w_other/(w_self+w_other),  β' = β(w_self+w_other)
+
+so on the positive quadrant the *direction* of the weight vector sets λ and
+its *magnitude* only rescales action precision.
+
+**Verified empirically:**
+
+- `--mode precision`: (c·w_self, c·w_other) at β reproduces (w_self, w_other)
+  at c·β **identically per seed** (all 6 tested configurations, c ∈ {0.5, 2}).
+- `--mode ratio`: over a 5×5 weight grid (20 seeds each), cooperation is a
+  function of the ratio; residual spread within a ratio is the precision
+  effect (e.g. λ=0.5 across 5 different magnitudes: mean CC 0.965, spread
+  0.164, monotone in magnitude).
+- `--mode quadrants`: the genuine extension is the sign-extended space, which
+  λ ∈ [0,1] cannot reach:
+
+| regime | (w_self, w_other) | CC | DD |
+|---|---|---|---|
+| cooperative | (0.4, 0.6) | 1.000 | 0.000 |
+| self-interested | (1.0, 0.0) | 0.000 | 0.965 |
+| spite | (0.6, −0.4) | 0.000 | **0.999** |
+| pure spite | (0.0, −1.0) | 0.000 | **1.000** |
+| self-abnegation | (−0.4, 0.6) | 1.000 | 0.000 |
+
+Spite is behaviourally distinct from indifference: valuing the partner's loss
+produces *more* stable mutual defection than merely disregarding the partner's
+welfare. Reported in the revision and linked to the psychopathy literature
+Referee 2 cites.
+
+Raw data: `referee2_weight_grid.json` (500 runs), `referee2_quadrants.json`
+(100 runs).
+
 ## Implementation notes discovered en route (affect Methods text)
 
 1. The agents' decisions are driven by the module-level `PD_PAYOFFS` dict in
