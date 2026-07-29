@@ -11,15 +11,26 @@ black for the clean copy). A LaTeX version of this letter is in the project as
 with 0 errors and no undefined references.
 
 Journal requirements checklist for resubmission:
-- [ ] This response document (point by point)
-- [ ] Clean main manuscript (tex + pdf)
-- [ ] Tracked-changes version (coloured highlights are acceptable)
-- [ ] Figures as separate files (PNG/TIFF/JPG/EPS), not embedded
-- [ ] Data accessibility section: repository + accession for data and code
-      (the analysis code and raw results are already public at
-      github.com/mahault/empathy-prisonner-dilemma, `scripts/run_referee_analyses.py`
-      and `results/referee_analyses/`)
+- [x] This response document, point by point (`response_to_reviewers.tex` in the
+      Overleaf project; still needs compiling to PDF, see note below)
+- [ ] Clean main manuscript (tex + pdf) — set `\revhighlightfalse` in the
+      preamble and recompile; regenerate the PDF, the previous one predates
+      the data accessibility section
+- [x] Tracked-changes version (`revision/rsif-2026-0208_tracked_changes.pdf`,
+      current as of 2026-07-29 16:38)
+- [x] Figures as separate files: all in `images/`, uploaded to Overleaf
+- [x] Data accessibility section, added to main.tex with the repository link,
+      the reproduction commands, and the pymdp fork pin
+- [ ] Ethics / Competing interests / Funding / Authors' contributions:
+      Ethics is written (simulation study, no approval needed); the other three
+      are visible `[To be completed by all authors]` placeholders in main.tex
+      and MUST be filled before submission
 - [ ] ESM if any
+
+Note on the response letter PDF: `response_to_reviewers.tex` is a standalone
+document, so Overleaf will only build it if it is set as the project's main
+document (Menu > Settings > Compiler > Main document). Do that when no coauthor
+is editing, compile, download, then set it back to `main.tex`.
 
 ---
 
