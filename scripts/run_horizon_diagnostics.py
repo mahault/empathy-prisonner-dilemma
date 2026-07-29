@@ -46,6 +46,7 @@ Usage:
 
 import argparse
 import sys
+from dataclasses import replace as dc_replace
 from itertools import product
 from pathlib import Path
 
@@ -72,6 +73,23 @@ CONFIG = {"normalize": "mean", "rollout": "static", "hist_alpha": 0.5}
 _orig_evaluate = SophisticatedPlanner.evaluate_policy
 
 
+def _predict_with_simulated_prefix(planner, policy, t):
+    """Opponent prediction at rollout step t>0, conditioned on the simulated
+    prefix. Uses the gated/learned model so that the reciprocity term sees the
+    previous simulated action; falls back to the static prior if inversion is
+    off (in which case there is nothing for the prefix to act on)."""
+    sim = planner.opponent_sim
+    ctx = getattr(sim, "context", None)
+    gated = getattr(sim, "gated_tom", None)
+    if ctx is None or gated is None:
+        return sim.predict_response(step=t)
+    try:
+        sim_ctx = dc_replace(ctx, my_last_action=int(policy[t - 1]))
+    except Exception:
+        return sim.predict_response(step=t)
+    return gated.predict_opponent_action(sim_ctx)
+
+
 def _patched_evaluate(self, policy):
     """evaluate_policy with selectable normalisation and rollout prediction."""
     lam = self.empathy_factor
@@ -90,7 +108,15 @@ def _patched_evaluate(self, policy):
             # prefix, so the prediction depends on the candidate policy.
             tom.update_my_policy_belief(float(np.clip(p_coop, 0.0, 1.0)))
 
-        q_response = self.opponent_sim.predict_response(step=t)
+        if CONFIG["rollout"] == "proper" and t > 0:
+            # What the Methods actually describe: at future steps the opponent
+            # prediction is conditioned on the simulated history induced by the
+            # partial rollout. The inversion model reads my_last_action through
+            # its reciprocity term, so feeding it the previous simulated action
+            # makes the prediction genuinely policy-dependent.
+            q_response = _predict_with_simulated_prefix(self, policy, t)
+        else:
+            q_response = self.opponent_sim.predict_response(step=t)
 
         G_self = 0.0
         for a_j in (COOPERATE, DEFECT):
@@ -124,7 +150,8 @@ sp_mod.SophisticatedPlanner.evaluate_policy = _patched_evaluate
 
 # ----------------------------------------------------------------------
 
-def cc(lam, H, beta=BETA, sophisticated=None, seeds=range(20), beta_j=BETA):
+def cc(lam, H, beta=BETA, sophisticated=None, seeds=range(20), beta_j=BETA,
+       inversion=False):
     """Mean mutual cooperation frequency, paper protocol (soph vs myopic partner).
 
     beta applies to the planning agent i only; the partner j keeps beta_j, since
@@ -132,10 +159,10 @@ def cc(lam, H, beta=BETA, sophisticated=None, seeds=range(20), beta_j=BETA):
     """
     if sophisticated is None:
         sophisticated = H > 1
-    ki = dict(empathy_factor=lam, use_inversion=False,
+    ki = dict(empathy_factor=lam, use_inversion=inversion,
               use_sophisticated=sophisticated, planning_horizon=H,
               beta_self=beta)
-    kj = dict(empathy_factor=lam, use_inversion=False, beta_self=beta_j)
+    kj = dict(empathy_factor=lam, use_inversion=inversion, beta_self=beta_j)
     rs = [run_pair("diag", f"H{H}", "H1", dict(ki), dict(kj), T=T, seed=s,
                    payoff_structure="standard", planning_horizon=H,
                    legacy_C=True)
@@ -217,11 +244,45 @@ def check_history():
     print("  attributable to genuine policy-dependent lookahead, not precision.")
 
 
+def check_proper():
+    """The rollout the Methods describe: future-step opponent predictions
+    conditioned on the simulated prefix, with inversion on so the reciprocity
+    term has something to respond to, and cumulative (not averaged) EFE so the
+    horizon does not silently rescale precision."""
+    print("=" * 72)
+    print("CHECK 5: properly implemented rollout (inversion ON)")
+    print("=" * 72)
+    seeds = range(20)
+    rows = [
+        ("as published  (static rollout, 1/H)", "static", "mean"),
+        ("precision fixed (static rollout, sum)", "static", "sum"),
+        ("PROPER (prefix-conditioned rollout, sum)", "proper", "sum"),
+    ]
+    for lam in LAMBDAS:
+        print(f"\n  lambda = {lam}")
+        print(f"  {'variant':<42}" + "".join(f"{'H='+str(h):>9}" for h in HORIZONS)
+              + f"{'H4-H1':>9}")
+        for label, roll, norm in rows:
+            CONFIG.update(rollout=roll, normalize=norm)
+            vals = [cc(lam, H, sophisticated=(H > 1), seeds=seeds, inversion=True)
+                    for H in HORIZONS]
+            print(f"  {label:<42}" + "".join(f"{v:>9.4f}" for v in vals)
+                  + f"{vals[-1]-vals[0]:>+9.4f}")
+    CONFIG.update(rollout="static", normalize="mean")
+    print("\n  A negative H4-H1 on the last row would be genuine erosion.")
+    print("  A positive one is shadow-of-the-future: lookahead anticipates")
+    print("  retaliation and supports cooperation.")
+
+
 def main():
     p = argparse.ArgumentParser(description="Planning-horizon diagnostics")
-    p.add_argument("--mode", choices=["equiv", "precision", "sum", "history", "all"],
+    p.add_argument("--mode", choices=["equiv", "precision", "sum", "history",
+                                      "proper", "all"],
                    default="all")
     a = p.parse_args()
+    if a.mode == "proper":
+        check_proper()
+        return 0
     if a.mode in ("equiv", "all"):
         check_equiv()
     if a.mode in ("precision", "all"):

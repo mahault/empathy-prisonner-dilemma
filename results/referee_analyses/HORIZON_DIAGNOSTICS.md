@@ -49,6 +49,53 @@ lookahead at all. Genuine policy-dependent lookahead, once the rollout
 prediction is allowed to respond to the simulated prefix, contributes about
 -0.003.
 
+## Does implementing the rollout properly rescue the claim? No.
+
+The Methods say future-step predictions are "conditioned on the simulated
+history induced by the partial rollout". The code does not do this. We
+implemented what the Methods describe (`--mode proper`): at each rollout step
+t > 0 the opponent prediction is recomputed from an `ObservationContext` whose
+`my_last_action` is the previous *simulated* action, with opponent inversion
+ON so the reciprocity term rho * f(h_t) actually responds to it, and with
+cumulative rather than averaged EFE so precision stays fixed.
+
+Mutual cooperation frequency, 20 seeds, standard payoffs, inversion on:
+
+| lambda | variant | H=1 | H=2 | H=3 | H=4 | H4-H1 |
+|---|---|---|---|---|---|---|
+| 0.3 | as published (static rollout, 1/H) | 0.7530 | 0.6300 | 0.5705 | 0.5300 | **-0.2230** |
+| 0.3 | precision fixed (static rollout, sum) | 0.7530 | 0.7540 | 0.7540 | 0.7540 | +0.0010 |
+| 0.3 | **proper (prefix-conditioned, sum)** | 0.7530 | 0.7575 | 0.7575 | 0.7575 | **+0.0045** |
+| 0.5 | as published | 0.9870 | 0.9355 | 0.8715 | 0.8080 | **-0.1790** |
+| 0.5 | precision fixed | 0.9870 | 0.9910 | 0.9910 | 0.9910 | +0.0040 |
+| 0.5 | **proper** | 0.9870 | 0.9910 | 0.9910 | 0.9910 | **+0.0040** |
+| 0.7 | as published | 1.0000 | 0.9920 | 0.9595 | 0.9145 | **-0.0855** |
+| 0.7 | precision fixed | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 0.0000 |
+| 0.7 | **proper** | 1.0000 | 1.0000 | 1.0000 | 1.0000 | **0.0000** |
+
+Reading:
+
+- The published erosion survives none of it. With precision held fixed the
+  horizon dependence disappears whether or not the rollout is corrected.
+- Conditioning the rollout on the simulated prefix adds essentially nothing:
+  +0.0045 at lambda=0.3, and nothing at all at lambda=0.5 and 0.7 where
+  behaviour is at ceiling. The prefix conditioning is active (it moves
+  lambda=0.3 from 0.7540 to 0.7575), it simply has almost no leverage.
+- A prior expectation that a corrected rollout would *reverse* the sign, with
+  anticipated retaliation supporting cooperation, is **not** supported. The
+  genuine effect is not negative, but it is not meaningfully positive either.
+  It is approximately zero.
+
+So the claim cannot be rescued by fixing the implementation. There is no
+planning-horizon effect in this model in either direction, at H <= 4.
+
+Scope of this conclusion: we tested one corrected rollout, the one the
+Methods describe. A fuller sophisticated-inference treatment (branching over
+opponent responses with belief updating in the rollout, depth-2 ToM, longer
+horizons) could behave differently, and the codebase does contain an unused
+`DepthTwoToM`. What we can say is that implementing what the paper claims to
+implement yields no effect.
+
 ## What this invalidates
 
 1. **"Increasing planning depth reduces cooperation at moderate empathy"**
