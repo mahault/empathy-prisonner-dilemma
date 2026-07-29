@@ -93,9 +93,17 @@ def _restore_decision_payoffs():
     PD_PAYOFFS.update(_PD_PAYOFFS_ORIGINAL)
 
 
-def create_pd_config(T: int, payoffs: tuple) -> dict:
-    """PD config matching run_pd_experiments.py, parameterised by payoffs."""
+def create_pd_config(T: int, payoffs: tuple, legacy_C: bool = False) -> dict:
+    """PD config matching run_pd_experiments.py, parameterised by payoffs.
+
+    legacy_C=True reproduces the paper's figure scripts exactly: the pymdp
+    state-inference preference vectors stay fixed at (3,1,4,2) regardless of
+    the decision payoff structure (behaviour is driven by PD_PAYOFFS either
+    way; this only pins the state-inference model to the published config).
+    """
     R, S, Tt, P = payoffs
+    if legacy_C:
+        R, S, Tt, P = 3.0, 1.0, 4.0, 2.0
     n_mod, n_fac, n_obs, n_st = 1, 1, 4, 4
 
     A0 = obj_array(n_mod); A0[0] = np.eye(n_obs)
@@ -155,6 +163,7 @@ def run_pair(
     T: int, seed: int,
     payoff_structure: str = "standard",
     planning_horizon: int = 1,
+    legacy_C: bool = False,
 ) -> PairResult:
     np.random.seed(seed)
     payoffs = PAYOFF_STRUCTURES[payoff_structure]
@@ -162,10 +171,11 @@ def run_pair(
 
     # Swap the DECISION payoffs (shared PD_PAYOFFS dict) - this is what the
     # ToM/planning modules actually read. Config C matrices are set
-    # consistently for the pymdp state-inference model.
+    # consistently for the pymdp state-inference model (or pinned to the
+    # published legacy config with legacy_C=True).
     _set_decision_payoffs(payoffs)
 
-    config = create_pd_config(T=T, payoffs=payoffs)
+    config = create_pd_config(T=T, payoffs=payoffs, legacy_C=legacy_C)
     env = Environment(K=2)
 
     ag_i = ToMEmpatheticAgent(config=config, agent_num=0, **kwargs_i)
@@ -305,32 +315,51 @@ def _print_comparison_summary(results: list):
 # -----------------------------------------------------------------------
 
 def run_horizon(T: int, n_seeds: int, out_dir: Path,
-                horizons=(1, 2, 3, 4), lambdas=(0.3, 0.5, 0.7)) -> list:
+                horizons=(1, 2, 3, 4), lambdas=(0.3, 0.5, 0.7),
+                protocol: str = "paper") -> list:
+    """protocol="paper" reproduces the exact Table 2 / Fig 7 setup of the
+    manuscript, verified to give CC = 0.782/0.657/0.597 at lambda=0.3,
+    H=1/2/3 under the standard payoffs (seeds 0-19, T=100):
+      - the sophisticated agent is paired with a MYOPIC partner of equal
+        lambda (generate_sophisticated_figure.py only passes the horizon to
+        agent i),
+      - legacy state-inference C matrices (3,1,4,2),
+      - metric: mutual cooperation frequency (freq_CC).
+    protocol="symmetric" gives both agents the same horizon and aligns the
+    C matrices with the decision payoffs (the earlier referee-sweep setup).
+    """
     print("=" * 70)
-    print("ANALYSIS 2: planning-horizon robustness")
+    print(f"ANALYSIS 2: planning-horizon robustness (protocol={protocol})")
     print(f"H={list(horizons)} x lambda={list(lambdas)} x "
           f"payoffs={list(PAYOFF_STRUCTURES)} x {n_seeds} seeds x T={T}")
     print("=" * 70)
 
+    paper = protocol == "paper"
     results = []
     grid = list(itertools.product(PAYOFF_STRUCTURES, horizons, lambdas))
     start = datetime.now()
 
     for idx, (pname, H, lam) in enumerate(grid):
-        kwargs = dict(
+        kwargs_i = dict(
             empathy_factor=lam,
             use_inversion=False,          # matches generate_sophisticated_figure.py
             use_sophisticated=(H > 1),
             planning_horizon=H,
         )
+        if paper:
+            # partner is always myopic, exactly as in the published figure
+            kwargs_j = dict(empathy_factor=lam, use_inversion=False)
+        else:
+            kwargs_j = dict(kwargs_i)
         for seed in range(n_seeds):
             results.append(run_pair(
                 analysis="horizon",
-                type_i=f"H{H}", type_j=f"H{H}",
-                kwargs_i=dict(kwargs), kwargs_j=dict(kwargs),
+                type_i=f"H{H}", type_j="H1" if paper else f"H{H}",
+                kwargs_i=dict(kwargs_i), kwargs_j=dict(kwargs_j),
                 T=T, seed=seed,
                 payoff_structure=pname,
                 planning_horizon=H,
+                legacy_C=paper,
             ))
         done = (idx + 1) * n_seeds
         total = len(grid) * n_seeds
@@ -338,13 +367,14 @@ def run_horizon(T: int, n_seeds: int, out_dir: Path,
         eta = elapsed / done * (total - done)
         print(f"  [{pname} H={H} lambda={lam}] done ({done}/{total}, ETA {eta/60:.1f} min)")
 
-    _save(results, out_dir / "horizon_results.json")
+    suffix = "" if paper else "_symmetric"
+    _save(results, out_dir / f"horizon_results{suffix}.json")
     _print_horizon_summary(results, horizons, lambdas)
     return results
 
 
 def _print_horizon_summary(results: list, horizons, lambdas):
-    print("\n--- Mean cooperation rate by payoff structure x H x lambda ---")
+    print("\n--- Mutual cooperation frequency (CC) by payoff structure x H x lambda ---")
     for pname in PAYOFF_STRUCTURES:
         print(f"\n  {pname} (R,S,T,P) = {PAYOFF_STRUCTURES[pname]}")
         print("    " + f"{'lambda':<8}" + "".join(f"H={h:<6}" for h in horizons))
@@ -355,12 +385,12 @@ def _print_horizon_summary(results: list, horizons, lambdas):
                         if r.payoff_structure == pname
                         and r.planning_horizon == H
                         and r.lambda_i == lam]
-                coop = np.mean([(r.coop_rate_i + r.coop_rate_j) / 2 for r in cell])
-                row += f"{coop:<8.2f}"
+                cc = np.mean([r.freq_CC for r in cell])
+                row += f"{cc:<8.2f}"
             print(row)
-    print("\n  Read across each row: if cooperation falls with H only under some")
-    print("  payoff structures, the horizon effect is payoff-dependent (referee's")
-    print("  hypothesis); if it falls under all three, it is a general property.")
+    print("\n  Metric matches paper Table 2 (freq_CC). Read across each row: if")
+    print("  cooperation falls with H only under some payoff structures, the")
+    print("  horizon effect is payoff-dependent; under all three it is general.")
 
 
 # -----------------------------------------------------------------------
@@ -379,6 +409,10 @@ def main():
     parser.add_argument("--n_seeds", type=int, default=25, help="Seeds per cell")
     parser.add_argument("--quick", action="store_true", help="Tiny run to validate the pipeline")
     parser.add_argument("--out", type=str, default=None, help="Output directory")
+    parser.add_argument("--protocol", choices=["paper", "symmetric"], default="paper",
+                        help="Horizon analysis protocol: 'paper' matches Table 2 / Fig 7 "
+                             "(sophisticated vs myopic partner, legacy C, CC metric); "
+                             "'symmetric' gives both agents the same horizon.")
     args = parser.parse_args()
 
     T = 20 if args.quick else args.T
@@ -390,9 +424,10 @@ def main():
         run_comparison(T=T, n_seeds=n_seeds, out_dir=out_dir)
     if args.mode in ("horizon", "all"):
         if args.quick:
-            run_horizon(T=T, n_seeds=n_seeds, out_dir=out_dir, horizons=(1, 2), lambdas=(0.3,))
+            run_horizon(T=T, n_seeds=n_seeds, out_dir=out_dir, horizons=(1, 2),
+                        lambdas=(0.3,), protocol=args.protocol)
         else:
-            run_horizon(T=T, n_seeds=n_seeds, out_dir=out_dir)
+            run_horizon(T=T, n_seeds=n_seeds, out_dir=out_dir, protocol=args.protocol)
     print(f"\nTotal time: {(datetime.now() - start).total_seconds()/60:.1f} min")
     return 0
 

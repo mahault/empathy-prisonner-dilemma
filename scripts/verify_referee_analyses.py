@@ -66,29 +66,52 @@ gap = np.mean([r.payoff_gap for r in rs])
 check("empathic_exploited", expl > 0.8 and gap < -3,
       f"exploitability={expl:.2f}, payoff_gap={gap:+.2f}")
 
-# --- Check 3: horizon reversal under weak_temptation lambda=0.3 (new seeds) ---
-def horizon_coop(pname, lam, H):
-    kwargs = dict(empathy_factor=lam, use_inversion=False,
-                  use_sophisticated=(H > 1), planning_horizon=H)
-    rs = [run_pair("verify", f"H{H}", f"H{H}", dict(kwargs), dict(kwargs),
-                   T=T, seed=s, payoff_structure=pname, planning_horizon=H)
-          for s in SEEDS]
-    return np.mean([(r.coop_rate_i + r.coop_rate_j) / 2 for r in rs])
+# --- Check 3: horizon results under the PAPER protocol (Table 2 / Fig 7):
+# sophisticated agent vs MYOPIC partner of equal lambda, legacy C, freq_CC ---
+def horizon_cc(pname, lam, H, seeds=SEEDS):
+    kwargs_i = dict(empathy_factor=lam, use_inversion=False,
+                    use_sophisticated=(H > 1), planning_horizon=H)
+    kwargs_j = dict(empathy_factor=lam, use_inversion=False)
+    rs = [run_pair("verify", f"H{H}", "H1", dict(kwargs_i), dict(kwargs_j),
+                   T=T, seed=s, payoff_structure=pname, planning_horizon=H,
+                   legacy_C=True)
+          for s in seeds]
+    return np.mean([r.freq_CC for r in rs])
 
-std_h1 = horizon_coop("standard", 0.3, 1)
-std_h4 = horizon_coop("standard", 0.3, 4)
+# 3a: exact reproduction of paper Table 2 (lambda=0.3, seeds 0-19)
+t2 = {1: 0.782, 2: 0.657, 3: 0.597}
+repro = {H: horizon_cc("standard", 0.3, H, seeds=range(20)) for H in (1, 2, 3)}
+check("table2_reproduction",
+      all(abs(repro[H] - t2[H]) < 0.005 for H in t2),
+      f"lam=0.3 CC H1/H2/H3 = {repro[1]:.3f}/{repro[2]:.3f}/{repro[3]:.3f} "
+      f"(paper: 0.782/0.657/0.597)")
+
+# 3b: erosion + reversal on independent seeds (100-124)
+std_h1 = horizon_cc("standard", 0.3, 1)
+std_h4 = horizon_cc("standard", 0.3, 4)
 check("standard_erosion", std_h1 - std_h4 > 0.1,
       f"standard lam=0.3: H1={std_h1:.2f} -> H4={std_h4:.2f}")
 
-wk_h1 = horizon_coop("weak_temptation", 0.3, 1)
-wk_h4 = horizon_coop("weak_temptation", 0.3, 4)
-check("weak_temptation_reversal", wk_h4 >= wk_h1 - 0.02,
+wk_h1 = horizon_cc("weak_temptation", 0.3, 1)
+wk_h4 = horizon_cc("weak_temptation", 0.3, 4)
+check("weak_temptation_no_erosion", wk_h4 >= wk_h1 - 0.02,
       f"weak_temptation lam=0.3: H1={wk_h1:.2f} -> H4={wk_h4:.2f} "
-      f"(reversal holds if H4 not lower)")
+      f"(holds if H4 not lower)")
 
 # --- Check 4: payoff structures actually produce different behavior ---
 check("payoffs_differentiate", abs(std_h1 - wk_h1) > 0.1,
       f"standard H1={std_h1:.2f} vs weak_temptation H1={wk_h1:.2f}")
+
+# --- Check 5: C matrices have no behavioral effect (legacy vs aligned) ---
+kwargs = dict(empathy_factor=0.3, use_inversion=False)
+cc_legacy = np.mean([run_pair("verify", "a", "b", dict(kwargs), dict(kwargs),
+                              T=T, seed=s, legacy_C=True).freq_CC
+                     for s in range(10)])
+cc_aligned = np.mean([run_pair("verify", "a", "b", dict(kwargs), dict(kwargs),
+                               T=T, seed=s, legacy_C=False).freq_CC
+                      for s in range(10)])
+check("C_matrices_inert", abs(cc_legacy - cc_aligned) < 1e-9,
+      f"legacy_C CC={cc_legacy:.3f} vs aligned CC={cc_aligned:.3f}")
 
 print()
 if failures:
