@@ -132,18 +132,36 @@ class OpponentBelief:
         return o
 
 
-def q_partner_static(p_my_coop, depth=1):
+def q_partner_static(p_my_coop, depth=1, lam_j=0.0):
     """Static ToM prediction of the partner's action.
 
-    depth 1: partner best-responds to their belief about my mixed strategy.
+    lam_j is the empathy the agent attributes to the partner.
+
+      lam_j = 0 reproduces the shipped static ToM, which evaluates the partner
+              purely on the partner's own payoff. Defection then strictly
+              dominates for them at every p, so the prediction is ~1%
+              cooperation regardless of anything the agent does.
+
+      lam_j > 0 is the structurally matched model the paper describes: the
+              partner is evaluated with the same social EFE the agent uses on
+              itself,
+                  G_j(a_j) = -sum_i pi_i(a_i) [ (1-lam_j) payoff_j + lam_j payoff_i ]
+              which gives G_j(C) - G_j(D) = p + 1 - 5*lam_j, i.e. exactly the
+              empathy_shift term already used by the particle filter. The
+              partner now has a cooperation threshold at lam_j = (p+1)/5, so
+              the prediction responds to the agent's own behaviour.
+
     depth 2: partner anticipates that I best-respond to them, and responds to
              that anticipated policy instead of to my empirical frequency.
     """
     pi_me = np.array([p_my_coop, 1.0 - p_my_coop])
 
     def partner_given(pi_i):
-        G_j = np.array([-sum(pi_i[a_i] * PAY[(a_i, a_j)][1] for a_i in (C, D))
-                        for a_j in (C, D)])
+        G_j = np.array([
+            -sum(pi_i[a_i] * ((1.0 - lam_j) * PAY[(a_i, a_j)][1]
+                              + lam_j * PAY[(a_i, a_j)][0])
+                 for a_i in (C, D))
+            for a_j in (C, D)])
         return _soft(G_j, BETA_OTHER)
 
     q_j = partner_given(pi_me)
@@ -162,7 +180,8 @@ def q_partner_static(p_my_coop, depth=1):
 
 class SophisticatedAgent:
     def __init__(self, lam, horizon=1, beta=BETA_SELF, tom_depth=1,
-                 learn=True, n_particles=15, seed=0, mem_alpha=None):
+                 learn=True, n_particles=15, seed=0, mem_alpha=None,
+                 lam_j_assumed=0.0):
         """mem_alpha controls how the partner's belief about my mixed strategy
         tracks my behaviour.
 
@@ -178,6 +197,7 @@ class SophisticatedAgent:
         self.tom_depth = tom_depth
         self.learn = learn
         self.mem_alpha = mem_alpha
+        self.lam_j_assumed = lam_j_assumed
         self.belief = OpponentBelief(n_particles, np.random.default_rng(seed))
         self.my_last = None
         self.n_rounds = 0
@@ -192,7 +212,8 @@ class SophisticatedAgent:
 
     # -- prediction -----------------------------------------------------
     def _q_partner(self, belief, my_last, p_my_coop):
-        q_static = q_partner_static(p_my_coop, depth=self.tom_depth)
+        q_static = q_partner_static(p_my_coop, depth=self.tom_depth,
+                                    lam_j=self.lam_j_assumed)
         if not self.learn:
             return q_static
         # Reliability-gated blend of learned and static prediction, matching
@@ -248,12 +269,13 @@ class SophisticatedAgent:
 
 
 def play(lam, H, T=100, seed=0, tom_depth=1, learn=True, partner_H=1,
-         mem_alpha=None):
+         mem_alpha=None, lam_j_assumed=0.0):
     rng = np.random.default_rng(seed)
     ai = SophisticatedAgent(lam, H, tom_depth=tom_depth, learn=learn, seed=seed,
-                            mem_alpha=mem_alpha)
+                            mem_alpha=mem_alpha, lam_j_assumed=lam_j_assumed)
     aj = SophisticatedAgent(lam, partner_H, tom_depth=tom_depth, learn=learn,
-                            seed=seed + 10_000, mem_alpha=mem_alpha)
+                            seed=seed + 10_000, mem_alpha=mem_alpha,
+                            lam_j_assumed=lam_j_assumed)
     cc = 0
     for _ in range(T):
         a_i = ai.act(rng)
@@ -353,9 +375,40 @@ def mode_memory(args):
     print("  cooperation, negative means the manuscript's erosion.")
 
 
+def mode_matched(args):
+    """Structurally matched ToM: model the partner with its own empathy weight,
+    as the paper says the architecture does, instead of as a pure payoff
+    maximiser. Does the horizon then matter, and what does it cost elsewhere?"""
+    horizons = args.horizons
+    seeds = range(args.n_seeds)
+    print("=" * 72)
+    print("MATCHED ToM: partner modelled with empathy lam_j, static, depth 1")
+    print("=" * 72)
+    print("\n  Predicted partner cooperation, P(C), by attributed empathy:")
+    print(f"  {'p':>6}" + "".join(f"{'lam_j='+str(l):>12}"
+                                  for l in (0.0, 0.3, 0.5, 0.7)))
+    for p_ in (0.0, 0.5, 1.0):
+        print(f"  {p_:>6.2f}" + "".join(
+            f"{q_partner_static(p_, 1, l)[0]:>12.4f}" for l in (0.0, 0.3, 0.5, 0.7)))
+
+    for lam in (0.3, 0.5, 0.7):
+        print(f"\n  lambda = {lam}")
+        print(f"  {'ToM assumes partner':<40}"
+              + "".join(f"{'H='+str(h):>9}" for h in horizons) + f"{'H4-H1':>9}")
+        for label, lj in [("selfish (as shipped, lam_j=0)", 0.0),
+                          ("empathic like me (lam_j = lambda)", lam)]:
+            vals = [mean_cc(lam, H, seeds, T=args.T, learn=False, tom_depth=1,
+                            lam_j_assumed=lj) for H in horizons]
+            print(f"  {label:<40}" + "".join(f"{v:>9.4f}" for v in vals)
+                  + f"{vals[-1]-vals[0]:>+9.4f}")
+    print("\n  Second row is the model the paper describes. Compare both the")
+    print("  horizon column and the H=1 level: the level shift is how much the")
+    print("  rest of the paper's numbers would move if this were fixed.")
+
+
 def main():
     p = argparse.ArgumentParser(description="Full sophisticated-inference rollout")
-    p.add_argument("--mode", choices=["validate", "sweep", "memory"],
+    p.add_argument("--mode", choices=["validate", "sweep", "memory", "matched"],
                    default="sweep")
     p.add_argument("--horizons", type=int, nargs="+", default=[1, 2, 3, 4])
     p.add_argument("--n_seeds", type=int, default=20)
@@ -365,6 +418,8 @@ def main():
         mode_validate(a)
     elif a.mode == "memory":
         mode_memory(a)
+    elif a.mode == "matched":
+        mode_matched(a)
     else:
         mode_sweep(a)
     return 0

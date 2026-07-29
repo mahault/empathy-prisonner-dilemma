@@ -206,6 +206,64 @@ purely self-interested. The particle-filter inversion carries lambda_j as a
 latent and can in principle infer an empathic partner. The horizon experiments
 all used the static path.
 
+## Fixing the ToM does produce the effect, and rewrites the rest of the paper
+
+The paper's central architectural claim is that an agent "models others using a
+generative architecture structurally matched to its own". The static ToM does
+not do this: it evaluates the partner purely on the partner's own payoff, with
+no lambda_j. Adding the partner's empathy weight, exactly as the paper
+describes, gives
+
+    G_j(a_j) = -sum_i pi_i(a_i) [ (1-lam_j) payoff_j + lam_j payoff_i ]
+    G_j(C) - G_j(D) = p + 1 - 5*lam_j
+
+which is precisely `empathy_shift(lam_j, p) = 5*lam_j - p - 1`, already used by
+the particle filter. So the static and learned paths currently disagree about
+what kind of agent the partner is. Only the learned one matches the paper.
+
+Predicted partner cooperation P(C) under the matched model:
+
+| p | lam_j=0 (shipped) | lam_j=0.3 | lam_j=0.5 | lam_j=0.7 |
+|---|---|---|---|---|
+| 0.0 | 0.0180 | 0.8808 | 0.9975 | 1.0000 |
+| 0.5 | 0.0025 | 0.5000 | 0.9820 | 0.9997 |
+| 1.0 | 0.0003 | 0.1192 | 0.8808 | 0.9975 |
+
+The prediction is now strongly responsive, so there is a real strategic channel.
+Cooperation frequency, static ToM, depth 1, 20 seeds:
+
+| lambda | ToM assumes | H=1 | H=2 | H=3 | H=4 | H4-H1 |
+|---|---|---|---|---|---|---|
+| 0.3 | selfish (shipped) | 0.7705 | 0.7700 | 0.7700 | 0.7700 | -0.0005 |
+| 0.3 | **empathic like me** | 0.2025 | 0.0925 | 0.0795 | 0.0710 | **-0.1315** |
+| 0.5 | selfish (shipped) | 0.9945 | 0.9945 | 0.9945 | 0.9945 | 0.0000 |
+| 0.5 | **empathic like me** | 0.8225 | 0.8215 | 0.8190 | 0.8175 | -0.0050 |
+| 0.7 | selfish (shipped) | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 0.0000 |
+| 0.7 | **empathic like me** | 0.9945 | 0.9945 | 0.9945 | 0.9945 | 0.0000 |
+
+**The planning-depth effect is real once the ToM is fixed**: -0.1315 at
+lambda=0.3, comparable in size to the -0.185 the manuscript reports, and with a
+coherent mechanism. Believing the partner is empathic means believing it will
+keep cooperating even while being defected on (an empathic partner facing a
+defector prefers C: it gains 0 against 1, but hands the defector 5, which its
+own lambda_j values). Deeper planning finds that exploitation is safer than it
+looks myopically. That is a sharper version of the paper's alignment argument
+than the one currently in it.
+
+**But the levels move enormously.** At lambda=0.3, H=1 cooperation falls from
+0.7705 to 0.2025. At lambda=0.5, from 0.9945 to 0.8225. Believing your partner
+is empathic invites exploiting them, which is the paper's own learning result
+(accurate belief in a cooperative partner sharpens the payoff gradient for
+defection) in a much stronger form. Fixing the ToM therefore moves the
+cooperation threshold, the phase-transition location, Table 1 and Figures 1-5,
+and weakens the headline "reciprocal empathy produces robust cooperation".
+
+So this is not a revision-scale change. It is the next paper.
+
+Caveat: the matched-ToM numbers come from the standalone planner, which is
+validated against the shipped agent only in the lam_j = 0 configuration. Treat
+-0.1315 as indicative until reproduced in the main codebase.
+
 ## What this invalidates
 
 1. **"Increasing planning depth reduces cooperation at moderate empathy"**
