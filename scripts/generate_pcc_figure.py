@@ -18,16 +18,20 @@ Right -- Memory effects, conditioned on the agent's own previous TWO actions
          the opponent model, not the decision rule.
 
 PROVENANCE. No script for this figure exists in the repository, in Overleaf,
-or in any email. The Overleaf history shows Alejandro uploaded the original
-pcc.png on 2026-02-11, and in chat that day he described plotting
-"conditional probability rates" and concluded the agent "behaves as if it had
-a memory in the dyad even though there is no learning/inversion". That last
-clause does not reproduce here. Four configurations were tried -- current code
-with inversion on and off, the legacy Theory of Mind with lambda_j = 0, and
-the actual 2026-02-11 commit -- under first-order, second-order and
-joint-outcome conditioning. Only the inversion-on case shows structure. This
-panel is therefore a reconstruction from the caption and is NOT known to match
-the original analysis.
+or in any email; the Overleaf history shows Alejandro uploaded the original
+pcc.png on 2026-02-11. Both effects the manuscript claims do reproduce here:
+stubborn defection at lambda = 0.1, where the agent cooperates on 0.000 of
+rounds even after two of its own cooperations, and fragile cooperation near
+the transition, where a single defection drops the next-round cooperation
+probability from 0.673 to 0.469 at lambda = 0.35.
+
+One thing does not. In chat on the day he made the plot, Alejandro noted the
+agent "behaves as if it had a memory in the dyad even though there is no
+learning/inversion". The manuscript makes no such claim, but the parenthetical
+does not hold: with inversion disabled the conditionals are flat to within
+0.07 under first-order, second-order and joint-outcome conditioning, on the
+current code, on the legacy Theory of Mind at lambda_j = 0, and on the
+2026-02-11 commit itself. The memory requires the opponent model.
 
 Run with the project virtualenv:
     .venv/Scripts/python.exe scripts/generate_pcc_figure.py
