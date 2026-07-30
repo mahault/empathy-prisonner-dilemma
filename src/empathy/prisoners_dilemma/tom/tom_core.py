@@ -80,9 +80,25 @@ class TheoryOfMind:
         # Default: uniform (no prior information)
         self._believed_my_policy = np.array([0.5, 0.5])
 
+        # Inferred empathy weight of the opponent, lambda_j. The opponent is
+        # evaluated under a social EFE with this weight, matching the agent's
+        # own objective, so the self- and other-models are structurally
+        # matched as described in the Methods. Default 0.5 is the prior mean
+        # of the particle ensemble; it is replaced each round by the posterior
+        # mean once opponent inversion is active.
+        self._lambda_j_belief = float(getattr(type(self), "DEFAULT_LAMBDA_J", 0.5))
+
     def update_opponent_beliefs(self, qs_other: np.ndarray) -> None:
         """Update our estimate of opponent's beliefs."""
         self._qs_other = qs_other
+
+    # Prior mean of the opponent-empathy particles. Set to 0.0 to recover the
+    # legacy purely self-interested opponent model (used for validation).
+    DEFAULT_LAMBDA_J = 0.5
+
+    def update_lambda_j_belief(self, lambda_j: float) -> None:
+        """Set the inferred empathy weight of the opponent."""
+        self._lambda_j_belief = float(np.clip(lambda_j, 0.0, 1.0))
 
     def update_my_policy_belief(self, cooperation_rate: float) -> None:
         """Update the opponent's belief about my policy from empirical history.
@@ -137,18 +153,28 @@ class TheoryOfMind:
         """
         Compute opponent's expected free energy for their action.
 
-        G_j(a_j) = -Σ_i π_i(a_i) * payoff_j(a_i, a_j)
+        The opponent is evaluated under the same social EFE the agent applies
+        to itself, using the inferred opponent empathy lambda_j:
 
-        The opponent computes their expected payoff under their belief
-        about my policy π_i (from observed history).
+            G_j(a_j) = -Σ_i π_i(a_i) [ (1-λ_j) payoff_j(a_i,a_j)
+                                        + λ_j   payoff_i(a_i,a_j) ]
+
+        so that G_j(C) - G_j(D) = p + 1 - 5*λ_j under the standard payoffs,
+        which is exactly the empathy shift used by the particle filter. With
+        λ_j = 0 this reduces to the purely self-interested opponent model.
+
+        π_i is the opponent's belief about my mixed strategy, derived from my
+        empirical cooperation rate.
         """
         G = 0.0
 
         if self.use_pragmatic_value:
+            lam_j = self._lambda_j_belief
             expected_payoff = 0.0
             for a_i in [COOPERATE, DEFECT]:
-                _, other_payoff = PD_PAYOFFS[(a_i, opponent_action)]
-                expected_payoff += self._believed_my_policy[a_i] * other_payoff
+                my_payoff, other_payoff = PD_PAYOFFS[(a_i, opponent_action)]
+                blended = (1.0 - lam_j) * other_payoff + lam_j * my_payoff
+                expected_payoff += self._believed_my_policy[a_i] * blended
             G -= expected_payoff
 
         if self.use_epistemic_value:

@@ -406,6 +406,12 @@ class ToMEmpatheticAgent:
             if self.use_inversion and self.inversion is not None:
                 self.inversion.my_cooperation_rate = coop_rate
 
+        # 5b. Feed the inferred opponent empathy into the ToM, so the opponent
+        # is evaluated under its inferred valuation rather than assumed to be
+        # purely self-interested.
+        if self.use_inversion and self.inversion is not None:
+            self.tom.update_lambda_j_belief(self.inversion.posterior_lambda_j())
+
         # 6. Compute action distribution (myopic or sophisticated)
         my_beliefs = None
         if self.self_agent.qs is not None and len(self.self_agent.qs) > 0:
@@ -413,10 +419,15 @@ class ToMEmpatheticAgent:
 
         if self.use_sophisticated:
             # Sophisticated: multi-step rollout planner
+            _n = len(self.action_history)
+            _cr = (sum(1 for a in self.action_history if a == COOPERATE) / _n
+                   ) if _n > 0 else None
             opponent_sim = OpponentSimulator(
                 tom=self.tom,
                 gated_tom=self.gated_tom if self.use_inversion else None,
                 context=context,
+                my_coop_rate=_cr,
+                n_rounds=_n,
             )
             planner = SophisticatedPlanner(
                 opponent_sim=opponent_sim,

@@ -74,9 +74,21 @@ class SophisticatedPlanner:
         step_info = []
         lam = self.empathy_factor
 
+        prefix_coops = 0
         for t, my_action in enumerate(policy):
-            # Predict opponent action at this rollout step (history-conditioned)
-            q_response = self.opponent_sim.predict_response(step=t)
+            # Predict opponent action at this rollout step, conditioned on the
+            # simulated history induced by this candidate policy: both my last
+            # simulated action (reciprocity) and my simulated cooperation rate.
+            sim_p = self.opponent_sim.simulated_policy_belief(prefix_coops, t)
+            restore = self.opponent_sim.apply_policy_belief(sim_p)
+            try:
+                q_response = self.opponent_sim.predict_response(
+                    step=t,
+                    simulated_last_action=(policy[t - 1] if t > 0 else None),
+                )
+            finally:
+                self.opponent_sim.apply_policy_belief(restore)
+            prefix_coops += 1 if my_action == COOPERATE else 0
 
             # My EFE: expected negative payoff
             G_self = 0.0
@@ -104,8 +116,11 @@ class SophisticatedPlanner:
                 "G_step": G_t,
             })
 
-        # Average over horizon
-        G_policy = total_G / self.horizon
+        # Accumulate over the horizon. This is deliberately NOT divided by H:
+        # the policy softmax applies beta to G(pi), so dividing by H would
+        # rescale effective action precision to beta/H and make the horizon
+        # act as a temperature knob rather than as lookahead.
+        G_policy = total_G
 
         info = {
             "steps": step_info,

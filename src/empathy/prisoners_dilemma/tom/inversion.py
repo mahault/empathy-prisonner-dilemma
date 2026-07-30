@@ -120,6 +120,21 @@ class OpponentInversion:
             lambda_j = np.random.uniform(0.0, 1.0)
             self.profiles.append(BehavioralProfile(alpha, reciprocity, beta, lambda_j))
 
+    def posterior_lambda_j(self) -> float:
+        """Posterior mean of the opponent's empathy weight lambda_j.
+
+        The paper treats lambda_j as a latent variable to be inferred; this
+        exposes the current estimate so the Theory of Mind module can evaluate
+        the opponent under its inferred valuation rather than assuming the
+        opponent is purely self-interested.
+        """
+        lams = np.array([p.lambda_j for p in self.profiles], dtype=float)
+        w = np.asarray(self.weights, dtype=float)
+        s = w.sum()
+        if s <= 0 or len(lams) == 0:
+            return 0.5
+        return float(np.dot(w / s, lams))
+
     def _history_feature(self, context: ObservationContext) -> float:
         """Extract history feature f(h_t) for the parametric model.
 
