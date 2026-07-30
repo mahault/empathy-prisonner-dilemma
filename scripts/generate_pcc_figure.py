@@ -10,14 +10,24 @@ Left  -- P(CC) as a function of empathy. The analytic curve is
          no-inversion simulation is the like-for-like comparison; the
          inversion-on curve is shown alongside it.
 Right -- Memory effects, conditioned on the agent's own previous TWO actions
-         as the manuscript's "second order conditioning" describes. A
-         first-order conditional averages this structure away and shows almost
-         nothing; the second-order one separates stubborn defection at low
-         empathy from history-contingent cooperation near the transition.
+         as the manuscript's "second order conditioning" describes, with
+         opponent inversion enabled. The conditionals separate through the
+         transition and collapse either side of it. With inversion disabled
+         they agree to within ~0.07 at every lambda, which the run verifies
+         and prints as "no-inv spread": the history-dependence enters through
+         the opponent model, not the decision rule.
 
-No script for this figure existed in the repository, so the exact statistic
-behind the published panel is not recoverable. This reimplements the caption's
-description rather than the original code.
+PROVENANCE. No script for this figure exists in the repository, in Overleaf,
+or in any email. The Overleaf history shows Alejandro uploaded the original
+pcc.png on 2026-02-11, and in chat that day he described plotting
+"conditional probability rates" and concluded the agent "behaves as if it had
+a memory in the dyad even though there is no learning/inversion". That last
+clause does not reproduce here. Four configurations were tried -- current code
+with inversion on and off, the legacy Theory of Mind with lambda_j = 0, and
+the actual 2026-02-11 commit -- under first-order, second-order and
+joint-outcome conditioning. Only the inversion-on case shows structure. This
+panel is therefore a reconstruction from the caption and is NOT known to match
+the original analysis.
 
 Run with the project virtualenv:
     .venv/Scripts/python.exe scripts/generate_pcc_figure.py
@@ -112,9 +122,23 @@ def collect(lams, seeds, T):
         out["pcc_noinv"].append(float(np.mean(cc_n)))
         for k in keys:
             out[k].append(float(np.mean(buckets[k])) if buckets[k] else np.nan)
+        # The caption claims the memory structure needs the inference
+        # machinery. Verify it: recompute the same conditionals with
+        # inversion off and record the spread.
+        nb = {k: [] for k in keys}
+        for s in range(seeds):
+            hi2, _ = simulate(lam, s, T, False)
+            for t in range(2, len(hi2)):
+                k = (("C" if hi2[t - 1] == 0 else "D")
+                     + ("C" if hi2[t - 2] == 0 else "D"))
+                nb[k].append(1.0 if hi2[t] == 0 else 0.0)
+        vals = [np.mean(v) for v in nb.values() if v]
+        out.setdefault("noinv_spread", []).append(
+            float(max(vals) - min(vals)) if len(vals) > 1 else float("nan"))
         print(f"  lambda {lam:.2f}  P(CC) inv {out['pcc_inv'][-1]:.3f}  "
               f"no-inv {out['pcc_noinv'][-1]:.3f}  "
-              f"memory CC-DD {out['CC'][-1] - out['DD'][-1]:+.3f}", flush=True)
+              f"memory CC-DD {out['CC'][-1] - out['DD'][-1]:+.3f}  "
+              f"no-inv spread {out['noinv_spread'][-1]:.3f}", flush=True)
     return out
 
 
