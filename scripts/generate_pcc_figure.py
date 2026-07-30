@@ -9,12 +9,15 @@ Left  -- P(CC) as a function of empathy. The analytic curve is
          assumes identical agents without learning or inversion, so the
          no-inversion simulation is the like-for-like comparison; the
          inversion-on curve is shown alongside it.
-Right -- Memory effects: probability that an agent cooperates given its own
-         previous action, which separates stubborn defection at low empathy
-         from fragile cooperation near the transition.
+Right -- Memory effects, conditioned on the agent's own previous TWO actions
+         as the manuscript's "second order conditioning" describes. A
+         first-order conditional averages this structure away and shows almost
+         nothing; the second-order one separates stubborn defection at low
+         empathy from history-contingent cooperation near the transition.
 
-No script for this figure existed in the repository; the published version
-appears to have been produced by hand.
+No script for this figure existed in the repository, so the exact statistic
+behind the published panel is not recoverable. This reimplements the caption's
+description rather than the original code.
 
 Run with the project virtualenv:
     .venv/Scripts/python.exe scripts/generate_pcc_figure.py
@@ -90,25 +93,28 @@ def simulate(lam, seed, T, inversion):
 
 
 def collect(lams, seeds, T):
-    out = {"pcc_inv": [], "pcc_noinv": [], "p_c_given_c": [], "p_c_given_d": []}
+    keys = ("CC", "CD", "DC", "DD")
+    out = {"pcc_inv": [], "pcc_noinv": [], **{k: [] for k in keys}}
     for lam in lams:
-        cc_i, cc_n, pcc, pcd = [], [], [], []
+        cc_i, cc_n = [], []
+        buckets = {k: [] for k in keys}
         for s in range(seeds):
             hi, hj = simulate(lam, s, T, True)
             cc_i.append(np.mean((hi == 0) & (hj == 0)))
-            prev, cur = hi[:-1], hi[1:]
-            if (prev == 0).any():
-                pcc.append(np.mean(cur[prev == 0] == 0))
-            if (prev == 1).any():
-                pcd.append(np.mean(cur[prev == 1] == 0))
+            # second order: condition on my previous two actions
+            for t in range(2, len(hi)):
+                k = (("C" if hi[t - 1] == 0 else "D")
+                     + ("C" if hi[t - 2] == 0 else "D"))
+                buckets[k].append(1.0 if hi[t] == 0 else 0.0)
             hi2, hj2 = simulate(lam, s, T, False)
             cc_n.append(np.mean((hi2 == 0) & (hj2 == 0)))
         out["pcc_inv"].append(float(np.mean(cc_i)))
         out["pcc_noinv"].append(float(np.mean(cc_n)))
-        out["p_c_given_c"].append(float(np.mean(pcc)) if pcc else np.nan)
-        out["p_c_given_d"].append(float(np.mean(pcd)) if pcd else np.nan)
+        for k in keys:
+            out[k].append(float(np.mean(buckets[k])) if buckets[k] else np.nan)
         print(f"  lambda {lam:.2f}  P(CC) inv {out['pcc_inv'][-1]:.3f}  "
-              f"no-inv {out['pcc_noinv'][-1]:.3f}", flush=True)
+              f"no-inv {out['pcc_noinv'][-1]:.3f}  "
+              f"memory CC-DD {out['CC'][-1] - out['DD'][-1]:+.3f}", flush=True)
     return out
 
 
@@ -133,14 +139,23 @@ def draw(lams, data, q0, q1, out_path):
     ax1.legend(fontsize=9, frameon=False)
     ax1.grid(alpha=0.3)
 
-    ax2.plot(lams, data["p_c_given_c"], "o-", color="#55A868", ms=5,
-             label=r"$P(C_t \mid C_{t-1})$")
-    ax2.plot(lams, data["p_c_given_d"], "s-", color="#C44E52", ms=5,
-             label=r"$P(C_t \mid D_{t-1})$")
+    styles = {"CC": ("#55A868", "o-"), "CD": ("#4C72B0", "^--"),
+              "DC": ("#937860", "v--"), "DD": ("#C44E52", "s-")}
+    for k, (col, st) in styles.items():
+        ax2.plot(lams, data[k], st, color=col, ms=5,
+                 label=rf"$P(C_t \mid {k[0]}_{{t-1}}, {k[1]}_{{t-2}})$")
+    gap = np.array(data["CC"]) - np.array(data["DD"])
+    peak = int(np.nanargmax(gap))
+    ax2.annotate(f"peak memory effect\n"
+                 f"$\\lambda={lams[peak]}$, $\\Delta={gap[peak]:.2f}$",
+                 xy=(lams[peak], data["DD"][peak]),
+                 xytext=(lams[peak] + 0.14, 0.22), fontsize=9,
+                 arrowprops=dict(arrowstyle="->", lw=0.9, color="grey"))
     ax2.axvline(lam_star, color="grey", ls=":", lw=1.5)
     ax2.set_xlabel(r"empathy $\lambda$", fontsize=12)
     ax2.set_ylabel("P(cooperate now)", fontsize=12)
-    ax2.set_title("B.  Memory effects", fontsize=13, fontweight="bold")
+    ax2.set_title("B.  Memory effects (second order)", fontsize=13,
+                  fontweight="bold")
     ax2.set_ylim(-0.02, 1.02)
     ax2.legend(fontsize=10, frameon=False)
     ax2.grid(alpha=0.3)
