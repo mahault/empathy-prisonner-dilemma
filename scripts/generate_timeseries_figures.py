@@ -147,8 +147,13 @@ def cumulative_mean(x):
 # Figure A : Cooperation dynamics (apology-forgiveness)
 # ───────────────────────────────────────────────────────────────────────────
 
-def figure_cooperation(conds, out_dir, T, w, noisy_cond=None):
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+def figure_cooperation(conds, out_dir, T, w, noisy_cond=None, axes=None,
+                       labels=("A", "B")):
+    own_fig = axes is None
+    if own_fig:
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+    else:
+        ax1, ax2 = axes
     t_ax = np.arange(T)
 
     # ── Left panel: rolling cooperation rate (mean +/- std) ──────────
@@ -165,7 +170,7 @@ def figure_cooperation(conds, out_dir, T, w, noisy_cond=None):
 
     ax1.set_xlabel("Round", fontsize=12)
     ax1.set_ylabel(f"Cooperation Rate (rolling w={w})", fontsize=12)
-    ax1.set_title("A.  Cooperation Dynamics", fontsize=13, fontweight="bold")
+    ax1.set_title(f"{labels[0]}.  Cooperation Dynamics", fontsize=13, fontweight="bold")
     ax1.set_ylim(-0.05, 1.05)
     ax1.legend(fontsize=9, loc="center right")
     ax1.grid(True, alpha=0.3)
@@ -218,11 +223,13 @@ def figure_cooperation(conds, out_dir, T, w, noisy_cond=None):
 
     ax2.set_xlabel("Round", fontsize=12)
     ax2.set_ylabel("Mutual Cooperation (0 / 1)", fontsize=12)
-    ax2.set_title("B.  Example Traces (apology-forgiveness)", fontsize=13, fontweight="bold")
+    ax2.set_title(f"{labels[1]}.  Example Traces (apology-forgiveness)", fontsize=13, fontweight="bold")
     ax2.set_ylim(-0.15, 1.25)
     ax2.legend(fontsize=9)
     ax2.grid(True, alpha=0.3)
 
+    if not own_fig:
+        return
     plt.tight_layout()
     for ext in ("png", "pdf"):
         fig.savefig(out_dir / f"cooperation_timeseries.{ext}", dpi=150)
@@ -234,8 +241,12 @@ def figure_cooperation(conds, out_dir, T, w, noisy_cond=None):
 # Figure B : Prediction error & belief synchronization
 # ───────────────────────────────────────────────────────────────────────────
 
-def figure_belief(conds, out_dir, T, w):
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+def figure_belief(conds, out_dir, T, w, axes=None, labels=("A", "B")):
+    own_fig = axes is None
+    if own_fig:
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+    else:
+        ax1, ax2 = axes
     t_ax = np.arange(T)
 
     # ── Left panel: rolling action agreement rate ────────────────────
@@ -255,7 +266,7 @@ def figure_belief(conds, out_dir, T, w):
 
     ax1.set_xlabel("Round", fontsize=12)
     ax1.set_ylabel(f"Action Agreement Rate (rolling w={w})", fontsize=12)
-    ax1.set_title("A.  Behavioural Synchrony", fontsize=13, fontweight="bold")
+    ax1.set_title(f"{labels[0]}.  Behavioural Synchrony", fontsize=13, fontweight="bold")
     ax1.set_ylim(-0.05, 1.05)
     ax1.legend(fontsize=9)
     ax1.grid(True, alpha=0.3)
@@ -276,16 +287,32 @@ def figure_belief(conds, out_dir, T, w):
 
     ax2.set_xlabel("Round", fontsize=12)
     ax2.set_ylabel("Cumulative Cooperation Rate", fontsize=12)
-    ax2.set_title("B.  Cooperation Convergence", fontsize=13, fontweight="bold")
+    ax2.set_title(f"{labels[1]}.  Cooperation Convergence", fontsize=13, fontweight="bold")
     ax2.set_ylim(-0.05, 1.05)
     ax2.legend(fontsize=9)
     ax2.grid(True, alpha=0.3)
 
+    if not own_fig:
+        return
     plt.tight_layout()
     for ext in ("png", "pdf"):
         fig.savefig(out_dir / f"belief_synchronization.{ext}", dpi=150)
     plt.close(fig)
     print("Saved: belief_synchronization.png / .pdf")
+
+
+def figure_combined(conds, out_dir, T, w, noisy_cond=None):
+    """Four-panel version matching the manuscript's Figure 3 (A-D)."""
+    fig, axs = plt.subplots(2, 2, figsize=(15, 10))
+    figure_cooperation(conds, out_dir, T, w, noisy_cond=noisy_cond,
+                       axes=(axs[0][0], axs[0][1]), labels=("A", "B"))
+    figure_belief(conds, out_dir, T, w, axes=(axs[1][0], axs[1][1]),
+                  labels=("C", "D"))
+    fig.tight_layout()
+    for ext in ("png", "pdf"):
+        fig.savefig(out_dir / f"fig3_timeseries_abcd.{ext}", dpi=150)
+    plt.close(fig)
+    print("Saved: fig3_timeseries_abcd.png / .pdf")
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -344,6 +371,7 @@ def main():
 
     print("\nGenerating Figure A ...")
     figure_cooperation(conds, out_dir, T, w, noisy_cond=noisy_cond)
+    figure_combined(conds, out_dir, T, w, noisy_cond=noisy_cond)
 
     print("Generating Figure B ...")
     figure_belief(conds, out_dir, T, w)

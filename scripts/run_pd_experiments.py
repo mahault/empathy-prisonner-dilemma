@@ -160,16 +160,23 @@ def run_single_experiment(
     env = Environment(K=2)
 
     # Create agents with specified empathy
+    # beta_i / beta_j were previously accepted and recorded but never passed
+    # to the agents, so every cell of the beta sweep silently ran at the
+    # default precision of 4.0 and the beta dimension was inert.
     agent_i = ToMEmpatheticAgent(
         config=config,
         agent_num=0,
         empathy_factor=lambda_i,
+        beta_self=beta_i,
+        beta_other=beta_j,
         use_inversion=use_inversion,
     )
     agent_j = ToMEmpatheticAgent(
         config=config,
         agent_num=1,
         empathy_factor=lambda_j,
+        beta_self=beta_j,
+        beta_other=beta_i,
         use_inversion=use_inversion,
     )
 
@@ -290,7 +297,8 @@ def run_smoke_test():
     return 0
 
 
-def run_sweep(output_path: str = None, n_seeds: int = 10, quick: bool = False):
+def run_sweep(output_path: str = None, n_seeds: int = 10, quick: bool = False,
+              lambda_values=None, beta_values=None):
     """Run parameter sweep over empathy and precision values.
 
     Full sweep (from roadmap):
@@ -313,8 +321,10 @@ def run_sweep(output_path: str = None, n_seeds: int = 10, quick: bool = False):
         beta_values = [4.0]
         use_inversion_values = [False]
     else:
-        lambda_values = [0.0, 0.25, 0.5, 0.75, 1.0]
-        beta_values = [1.0, 4.0, 16.0]
+        if lambda_values is None:
+            lambda_values = [0.0, 0.25, 0.5, 0.75, 1.0]
+        if beta_values is None:
+            beta_values = [1.0, 4.0, 16.0]
         use_inversion_values = [False, True]
 
     total_runs = (
@@ -498,6 +508,15 @@ def main():
         description="Prisoner's Dilemma Experiment Runner"
     )
     parser.add_argument(
+        "--lambdas", type=str, default=None,
+        help="comma-separated lambda grid, e.g. 0,0.1,0.2",
+    )
+    parser.add_argument(
+        "--betas", type=str, default=None,
+        help="comma-separated beta grid. The published sweep sampled three "
+             "values but never passed them to the agents, so they were inert.",
+    )
+    parser.add_argument(
         "--mode",
         choices=["smoke", "single", "sweep", "validate"],
         default="smoke",
@@ -525,7 +544,11 @@ def main():
         print(json.dumps(asdict(result), indent=2))
         return 0
     elif args.mode == "sweep":
-        return run_sweep(output_path=args.output, n_seeds=args.n_seeds, quick=args.quick)
+        _lams = [float(x) for x in args.lambdas.split(',')] if args.lambdas else None
+        _bets = [float(x) for x in args.betas.split(',')] if args.betas else None
+        return run_sweep(output_path=args.output, n_seeds=args.n_seeds,
+                         quick=args.quick, lambda_values=_lams,
+                         beta_values=_bets)
     elif args.mode == "validate":
         return run_validation()
 
