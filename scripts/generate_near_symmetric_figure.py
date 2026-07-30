@@ -107,13 +107,19 @@ def main():
     parser.add_argument("--T", type=int, default=100)
     parser.add_argument("--n_seeds", type=int, default=30)
     parser.add_argument("--window", type=int, default=5)
+    parser.add_argument("--lambda_j", type=float, default=0.5,
+                        help="partner empathy. The submitted figure used 0.5 as a "
+                             "value well past threshold; under the corrected model "
+                             "0.5 sits at the threshold and 0.7 plays that role.")
+    parser.add_argument("--suffix", default="",
+                        help="appended to the output filename")
     args = parser.parse_args()
 
     out_dir = PROJECT_ROOT / args.output
     out_dir.mkdir(parents=True, exist_ok=True)
     T, ns, w = args.T, args.n_seeds, args.window
 
-    lambda_j = 0.5
+    lambda_j = args.lambda_j
     lambda_i_values = [0.10, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.65, 0.75]
 
     print("=" * 60)
@@ -194,7 +200,7 @@ def main():
 
     plt.tight_layout()
     for ext in ("png", "pdf"):
-        fig.savefig(out_dir / f"near_symmetric_dynamics.{ext}", dpi=150)
+        fig.savefig(out_dir / f"near_symmetric_dynamics{args.suffix}.{ext}", dpi=150)
     plt.close(fig)
     print("\nSaved: near_symmetric_dynamics.png / .pdf")
 
