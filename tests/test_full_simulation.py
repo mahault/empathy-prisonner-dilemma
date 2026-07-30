@@ -358,3 +358,39 @@ class TestToMSimulation:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestReciprocityAlignment:
+    """The opponent model must learn reciprocity from a reciprocal partner.
+
+    Moves are simultaneous, so the partner's round t-1 action responds to my
+    round t-2 action. Scoring it against my round t-1 action instead makes the
+    reciprocity coefficient unlearnable and leaves multi-step planning with no
+    lever to plan against.
+    """
+
+    @staticmethod
+    def _vs_tft(T=60, seed=0):
+        np.random.seed(seed)
+        ag = ToMEmpatheticAgent(config=create_pd_config(T=T), agent_num=0,
+                                empathy_factor=0.3, use_inversion=True)
+        mine, obs = [], None
+        for t in range(T):
+            a = ag.step(t=t, observation=obs)["exp_action"]
+            b = 0 if not mine else mine[-1]      # tit-for-tat
+            mine.append(a)
+            obs = 2 * a + b
+        return ag.inversion
+
+    def test_infers_positive_reciprocity_from_tit_for_tat(self):
+        inv = self._vs_tft()
+        assert inv.get_profile_summary()["mean_reciprocity"] > 0.5
+
+    def test_predicted_response_follows_my_action(self):
+        """dq = q(C | I cooperated) - q(C | I defected) must be strongly positive."""
+        from empathy.prisoners_dilemma.tom.inversion import ObservationContext
+        inv = self._vs_tft()
+        q = [float(inv.predict_action(ObservationContext(
+                my_last_action=m, their_last_action=None,
+                joint_outcome=None, round_number=60))[0]) for m in (0, 1)]
+        assert q[0] - q[1] > 0.5

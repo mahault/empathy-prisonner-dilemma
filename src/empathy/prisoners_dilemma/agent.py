@@ -388,8 +388,8 @@ class ToMEmpatheticAgent:
 
         # 2. Update opponent inversion (if enabled)
         if self.use_inversion and t > 0 and opponent_action is not None:
-            context = self._build_observation_context(t)
-            self.inversion.update(opponent_action, context)
+            self.inversion.update(opponent_action,
+                                  self._build_learning_context(t))
             self.last_opponent_action = opponent_action
 
         # 3. Infer my own state beliefs
@@ -511,6 +511,31 @@ class ToMEmpatheticAgent:
                 return COOPERATE
             else:  # DC or DD
                 return DEFECT
+
+    def _build_learning_context(self, t: int) -> ObservationContext:
+        """Context for scoring the opponent's action in round t-1.
+
+        Moves are simultaneous, so the opponent's round t-1 action responds to
+        my round t-2 action: they had not seen round t-1 when they chose. The
+        reciprocity feature f(h) must therefore be built from action_history
+        [-2], not from self.last_action (which is round t-1).
+
+        Using the same-round action instead makes the reciprocity coefficient
+        unlearnable: against tit-for-tat it is inferred as rho ~ -0.1 instead
+        of ~ +2.3, and the predicted response to my own action flips sign. The
+        planner then has no lever to plan against, which is why planning
+        horizon had no effect. Prediction contexts are NOT shifted this way -
+        predicting round t correctly conditions on my round t-1 action.
+        """
+        cue = self.action_history[-2] if len(self.action_history) >= 2 else None
+        return ObservationContext(
+            my_last_action=cue,
+            their_last_action=self.last_opponent_action,
+            joint_outcome=self.observation_history[-1] if self.observation_history else None,
+            round_number=t,
+            my_cumulative_payoff=self.my_cumulative_payoff,
+            their_cumulative_payoff=self.other_cumulative_payoff,
+        )
 
     def _build_observation_context(self, t: int) -> ObservationContext:
         """Build context for opponent inversion update."""
