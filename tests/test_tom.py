@@ -30,28 +30,57 @@ class TestTheoryOfMind:
         assert np.isclose(np.sum(prediction.q_response), 1.0)
         assert all(p >= 0 for p in prediction.q_response)
 
-    def test_prediction_depends_on_believed_policy(self):
-        """Opponent prediction should change based on believed policy."""
+    @staticmethod
+    def _predictions_at(lambda_j):
+        """P(D) predicted against a known defector and a known cooperator,
+        for an opponent modelled with empathy lambda_j."""
         class MockAgent:
             qs = [np.array([0.5, 0.5])]
             beta = 4.0
 
-        tom = TheoryOfMind(other_model=MockAgent(), beta_other=4.0)
+        prev = TheoryOfMind.DEFAULT_LAMBDA_J
+        try:
+            TheoryOfMind.DEFAULT_LAMBDA_J = lambda_j
+            tom = TheoryOfMind(other_model=MockAgent(), beta_other=4.0)
+            tom.update_my_policy_belief(0.0)
+            vs_defector = tom.predict_opponent_action().q_response[DEFECT]
+            tom.update_my_policy_belief(1.0)
+            vs_cooperator = tom.predict_opponent_action().q_response[DEFECT]
+        finally:
+            TheoryOfMind.DEFAULT_LAMBDA_J = prev
+        return vs_defector, vs_cooperator
 
-        # If opponent believes I always cooperate
-        tom.update_my_policy_belief(1.0)
-        pred_vs_cooperator = tom.predict_opponent_action()
+    def test_prediction_depends_on_believed_policy(self):
+        """Opponent prediction should change based on believed policy."""
+        vs_defector, vs_cooperator = self._predictions_at(0.5)
+        assert not np.isclose(vs_defector, vs_cooperator)
 
-        # If opponent believes I always defect
-        tom.update_my_policy_belief(0.0)
-        pred_vs_defector = tom.predict_opponent_action()
+    def test_self_interested_opponent_always_defects(self):
+        """Regression guard for the lambda_j = 0 model.
 
-        # Opponent should defect more against a known defector
-        # (payoff 1 vs 0 for D vs C when I defect)
-        # vs against a cooperator (payoff 5 vs 3 for D vs C)
-        # Both predict defection, but with different magnitudes
-        assert pred_vs_defector.q_response[DEFECT] > 0.5
-        assert pred_vs_cooperator.q_response[DEFECT] > 0.5
+        With no empathy the opponent is a pure payoff maximiser and defection
+        strictly dominates at every believed policy (5 > 3 against a
+        cooperator, 1 > 0 against a defector). This is the behaviour the
+        pre-inference model assumed everywhere.
+        """
+        vs_defector, vs_cooperator = self._predictions_at(0.0)
+        assert vs_defector > 0.5
+        assert vs_cooperator > 0.5
+
+    def test_empathic_opponent_tolerates_exploitation(self):
+        """An opponent that weights my payoff will cooperate into a defector.
+
+        With PD_PAYOFFS = (R,S,T,P) = (3,0,5,1) the joint welfare of (D,C) is
+        T+S = 5, which beats (D,D) at 2P = 2. So once lambda_j is high enough
+        the modelled opponent prefers to be exploited rather than retaliate.
+        This is a property of the payoff matrix, not of the implementation,
+        and it is why the inferred-lambda_j model shifts the cooperation
+        threshold upward.
+        """
+        defector_pd = [self._predictions_at(lj)[0] for lj in (0.0, 0.25, 0.5)]
+        # Predicted retaliation falls away monotonically as lambda_j rises.
+        assert defector_pd[0] > defector_pd[1] > defector_pd[2]
+        assert defector_pd[0] > 0.5 and defector_pd[2] < 0.5
 
 
 class TestSocialEFE:

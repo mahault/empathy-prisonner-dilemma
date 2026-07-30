@@ -11,15 +11,16 @@ Model changes on this branch (fix/inferred-lambda-j):
   3. Rollout predictions at future steps are conditioned on the simulated
      prefix, so multi-step planning is genuinely policy-dependent.
 
-ENVIRONMENT NOTE
-----------------
-pandas is currently blocked on this machine by a Windows Application Control
-policy, and pymdp imports it at module load. pandas is used ONLY in
-pymdp/utils.py, and only by Excel/DataFrame helpers (create_A_matrix_stub,
-read_excel, ...) that this project never calls. We therefore install a stub so
-the simulation code can run. The stub is validated below: with lambda_j forced
-to 0 the model must reproduce the pre-change myopic baseline exactly, which
-would be impossible if the stub perturbed anything.
+ENVIRONMENT
+-----------
+Run this with the project virtualenv, which has pymdp and its dependencies:
+
+    .venv/Scripts/python.exe scripts/rerun_all.py --mode all      (Windows)
+    .venv/bin/python scripts/rerun_all.py --mode all              (POSIX)
+
+A bare `python` on this machine resolves to a global interpreter that has no
+pymdp installed and will fail at import. The check below turns that into a
+readable message instead of a bare traceback.
 
 Usage:
     python scripts/rerun_all.py --mode validate
@@ -28,49 +29,31 @@ Usage:
 
 import argparse
 import sys
-import types
 from pathlib import Path
-
-import numpy as np
 
 PROJECT_ROOT = Path(__file__).parent.parent
 
 
-def install_pandas_stub():
-    """Install a stub pandas if the real one cannot load. Returns True if a
-    stub was installed."""
+def check_environment():
+    """Fail loudly and usefully if run outside the project virtualenv."""
     try:
-        import pandas  # noqa: F401
-        return False
-    except Exception as exc:  # DLL blocked, ABI mismatch, etc.
-        stub = types.ModuleType("pandas")
-
-        def _blocked(*a, **k):
-            raise RuntimeError(
-                "pandas is stubbed out in this environment; this code path "
-                "genuinely needs pandas and must not be used for results.")
-
-        for name in ("DataFrame", "MultiIndex", "read_excel", "Series",
-                     "concat", "isna", "Index", "Timestamp", "Timedelta",
-                     "Categorical", "CategoricalDtype", "NA", "NaT",
-                     "api", "options"):
-            setattr(stub, name, _blocked)
-        stub.__version__ = "0.0.0-stub"
-        sys.modules["pandas"] = stub
-
-        # pymdp.utils also imports seaborn, which imports pandas internals we
-        # cannot satisfy. Neither is used by the simulation code path.
-        sb = types.ModuleType("seaborn")
-        sb.set_style = sb.set_theme = sb.set = lambda *a, **k: None
-        sb.heatmap = sb.color_palette = _blocked
-        sys.modules["seaborn"] = sb
-
-        print(f"  [env] real pandas unavailable ({type(exc).__name__}); "
-              f"stubbed pandas and seaborn for pymdp import only")
-        return True
+        import numpy  # noqa: F401
+        import pymdp  # noqa: F401
+    except Exception as exc:
+        venv = PROJECT_ROOT / ".venv" / (
+            "Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+        sys.exit(
+            f"\nCannot import pymdp: {type(exc).__name__}: {exc}\n\n"
+            f"You are running {sys.executable}\n"
+            f"Use the project virtualenv instead:\n\n"
+            f"    {venv} scripts/rerun_all.py --mode all\n\n"
+            f"If .venv does not exist, create it with:\n"
+            f"    python -m venv .venv && {venv} -m pip install -e \".[pymdp,dev]\"\n")
 
 
-STUBBED = install_pandas_stub()
+check_environment()
+
+import numpy as np  # noqa: E402
 
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
@@ -109,8 +92,7 @@ def mode_validate(_):
     TheoryOfMind.DEFAULT_LAMBDA_J = 0.5
     print(f"\n  exact reproduction: {ok}")
     if ok:
-        print("  => the port is behaviour-preserving at lambda_j = 0, and the")
-        print("     pandas stub does not perturb results.")
+        print("  => the port is behaviour-preserving at lambda_j = 0.")
     else:
         print("  => DO NOT TRUST any numbers from this run.")
     return ok
