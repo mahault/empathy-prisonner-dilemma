@@ -104,6 +104,7 @@ class OpponentInversion:
 
         self._initialize_particles(initial_weights)
         self.observation_history: List[Tuple[int, ObservationContext]] = []
+        self._last_context: Optional[ObservationContext] = None
 
     def _initialize_particles(self, initial_weights: Optional[np.ndarray] = None):
         """Initialize particles with priors over behavioral parameters."""
@@ -180,6 +181,7 @@ class OpponentInversion:
     ) -> InversionState:
         """Update particle weights given observed opponent action."""
         self.observation_history.append((observed_action, context))
+        self._last_context = context
 
         # Compute likelihood for each particle
         likelihoods = np.zeros(self.n_particles)
@@ -215,17 +217,42 @@ class OpponentInversion:
             effective_sample_size=ess,
         )
 
-    def reliability(self) -> float:
-        """Compute reliability from weight concentration (entropy-based)."""
-        entropy = self._weight_entropy()
-        max_entropy = np.log(self.n_particles)
+    def reliability(self, context: Optional[ObservationContext] = None) -> float:
+        """How far to trust the learned partner model, in [0, 1].
 
-        if max_entropy > 0:
-            confidence = 1 - entropy / max_entropy
-        else:
-            confidence = 1.0
+        Measured as agreement among the particles about the partner's next
+        action, which is exactly the quantity the gate consumes.
 
-        return sigmoid(confidence, center=0.5, scale=0.1)
+        This must NOT be read off the importance weights. Systematic
+        resampling deliberately resets the weights to uniform and carries the
+        accumulated evidence in the particle *positions* instead, so weight
+        entropy tracks time-since-last-resample rather than how much has been
+        learned. Worse, the two thresholds were mutually unreachable: weight
+        entropy only clears sigmoid(center=0.5, scale=0.1) once the mass sits
+        on <= sqrt(n_particles) particles, but resampling fires first at
+        ESS < 0.5 * n_particles and flattens it again. The gate therefore sat
+        near 0.015 for every partner and the learned model was never used.
+
+        Agreement survives resampling because resampled particles cluster
+        around the surviving hypotheses. A broad prior gives wide disagreement
+        and hence low reliability, which is the intended cold-start behaviour.
+        """
+        ctx = context if context is not None else self._last_context
+        if ctx is None:
+            return 0.0  # no evidence yet
+
+        probs = np.array([self._particle_action_probs(k, ctx)[0]
+                          for k in range(self.n_particles)])
+        w = np.asarray(self.weights, dtype=float)
+        s = w.sum()
+        if s <= 0:
+            return 0.0
+        w = w / s
+
+        mean = float(np.dot(w, probs))
+        sd = float(np.sqrt(max(0.0, np.dot(w, (probs - mean) ** 2))))
+        # sd of a [0,1] variable is at most 0.5; map full disagreement -> 0.
+        return float(np.clip(1.0 - 2.0 * sd, 0.0, 1.0))
 
     def _weight_entropy(self) -> float:
         """Compute entropy of particle weights."""
@@ -455,7 +482,7 @@ class GatedToM:
         Returns:
             q(a_j | h_t) - gated distribution over opponent actions
         """
-        reliability = self.inversion.reliability()
+        reliability = self.inversion.reliability(context)
 
         tom_prediction = self.tom.predict_opponent_action()
         q_tom = tom_prediction.q_response

@@ -196,6 +196,51 @@ class TestOpponentInversion:
 
         assert 0.0 <= reliability <= 1.0
 
+    @staticmethod
+    def _feed(inversion, partner_action, n_rounds, my_action=COOPERATE):
+        """Show the filter a consistent partner for n_rounds."""
+        for t in range(1, n_rounds + 1):
+            inversion.update(
+                observed_action=partner_action,
+                context=ObservationContext(
+                    my_last_action=my_action,
+                    their_last_action=partner_action,
+                    joint_outcome=None,
+                    round_number=t,
+                ),
+            )
+        return inversion.reliability()
+
+    def test_reliability_gate_can_open(self):
+        """Regression guard: the gate must be reachable.
+
+        Reliability was previously read off the importance weights, which
+        systematic resampling resets to uniform. The two thresholds were
+        mutually unreachable, so the gate sat near 0.015 forever and the
+        learned model was never used no matter how much evidence arrived.
+        """
+        np.random.seed(0)
+        inversion = OpponentInversion(n_particles=30)
+        assert self._feed(inversion, DEFECT, 40) > inversion.reliability_threshold
+
+    def test_reliability_starts_low(self):
+        """With no observations there is no evidence to trust."""
+        assert OpponentInversion(n_particles=30).reliability() == 0.0
+
+    def test_reliability_reflects_partner_predictability(self):
+        """A deterministic partner is more predictable than a coin flip."""
+        np.random.seed(0)
+        det = self._feed(OpponentInversion(n_particles=30), DEFECT, 40)
+
+        np.random.seed(0)
+        inv = OpponentInversion(n_particles=30)
+        for t in range(1, 41):
+            a = int(np.random.rand() < 0.5)
+            inv.update(observed_action=a, context=ObservationContext(
+                my_last_action=COOPERATE, their_last_action=a,
+                joint_outcome=None, round_number=t))
+        assert det > inv.reliability()
+
     def test_profile_summary_has_expected_keys(self):
         """Profile summary should contain mean and std for all parameters."""
         inversion = OpponentInversion(n_particles=30)
