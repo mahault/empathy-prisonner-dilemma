@@ -404,6 +404,62 @@ def section_partners():
     w()
 
 
+# ------------------------------------------------- Table 1 and boundary stats
+def section_table1():
+    """Table 1: lambda_j fixed at 0.5, sweep lambda_i, 30 seeds."""
+    w("## 8. Cooperation transition, Table 1 protocol")
+    w()
+    w("lambda_j = 0.5 fixed, T = 100, 30 seeds, as the table caption states.")
+    w()
+    w("| lambda_i | mean CC | sd CC |")
+    w("|---|---|---|")
+    for li in (0.10, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.65, 0.75):
+        rs = [run_pair("t1", "i", "j",
+                       dict(empathy_factor=li, use_inversion=True),
+                       dict(empathy_factor=0.5, use_inversion=True),
+                       T=T, seed=s, legacy_C=True) for s in range(30)]
+        v = np.array([r.freq_CC for r in rs])
+        w(f"| {li:.2f} | {v.mean():.3f} | {v.std():.3f} |")
+    w()
+
+
+def section_boundary_stats():
+    """Variability near the transition against well beyond it."""
+    w("## 9. Boundary-layer variability")
+    w()
+    w("The comparison windows move with the transition, which now sits near")
+    w("lambda = 0.45 rather than 0.24.")
+    w()
+    near, beyond, W = [0.35, 0.40, 0.45, 0.50], [0.55, 0.65, 0.75], 10
+    data = {}
+    for li in near + beyond:
+        band, cc = [], []
+        for s in range(30):
+            hi, hj = simulate(li, 0.5, s, T=T)
+            m = ((hi == 0) & (hj == 0)).astype(float)
+            band.append(np.convolve(m, np.ones(W) / W, mode="valid").std())
+            cc.append(m.mean())
+        data[li] = (np.array(band), np.array(cc))
+    a = np.concatenate([data[x][0] for x in near])
+    b = np.concatenate([data[x][0] for x in beyond])
+    obs = a.mean() - b.mean()
+    rng = np.random.default_rng(0)
+    pool = np.concatenate([a, b])
+    hits = 0
+    for _ in range(20000):
+        rng.shuffle(pool)
+        if abs(pool[:len(a)].mean() - pool[len(a):].mean()) >= abs(obs):
+            hits += 1
+    pval = (hits + 1) / 20001
+    sa = np.array([data[x][1].std() for x in near])
+    sb = np.array([data[x][1].std() for x in beyond])
+    w(f"- band thickness: near {a.mean():.3f}, beyond {b.mean():.3f}, "
+      f"delta {obs:+.3f}, permutation p {pval:.5f}")
+    w(f"- seed-to-seed sd: near {sa.mean():.3f}, beyond {sb.mean():.3f}, "
+      f"delta {sa.mean()-sb.mean():+.3f} (too few grid points to permute)")
+    w()
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     w("# Rebaselined paper numbers")
@@ -423,6 +479,8 @@ def main():
     section_planning()
     section_models()
     section_partners()
+    section_table1()
+    section_boundary_stats()
     (OUT / "PAPER_NUMBERS.md").write_text("\n".join(buf), encoding="utf-8")
     print(f"\nwrote {OUT / 'PAPER_NUMBERS.md'}")
     return 0

@@ -8,8 +8,8 @@
     "T": 100,
     "seed": 0,
     "coop_rate_i": 1.0,
-    "coop_rate_j": 1.0,
-    "freq_CC": 1.0,
+    "coop_rate_j": 0.99,
+    "freq_CC": 0.99,
     "freq_DD": 0.0
   },
   {
@@ -20,9 +20,9 @@
     "beta": 4.0,
     "T": 100,
     "seed": 1,
-    "coop_rate_i": 1.0,
-    "coop_rate_j": 1.0,
-    "freq_CC": 1.0,
+    "coop_rate_i": 0.99,
+    "coop_rate_j": 0.98,
+    "freq_CC": 0.97,
     "freq_DD": 0.0
   },
   {
@@ -33,9 +33,9 @@
     "beta": 4.0,
     "T": 100,
     "seed": 2,
-    "coop_rate_i": 1.0,
+    "coop_rate_i": 0.99,
     "coop_rate_j": 1.0,
-    "freq_CC": 1.0,
+    "freq_CC": 0.99,
     "freq_DD": 0.0
   },
   {
@@ -60,8 +60,8 @@
     "T": 100,
     "seed": 4,
     "coop_rate_i": 1.0,
-    "coop_rate_j": 1.0,
-    "freq_CC": 1.0,
+    "coop_rate_j": 0.99,
+    "freq_CC": 0.99,
     "freq_DD": 0.0
   },
   {
@@ -72,9 +72,9 @@
     "beta": 4.0,
     "T": 100,
     "seed": 5,
-    "coop_rate_i": 1.0,
-    "coop_rate_j": 1.0,
-    "freq_CC": 1.0,
+    "coop_rate_i": 0.99,
+    "coop_rate_j": 0.99,
+    "freq_CC": 0.98,
     "freq_DD": 0.0
   },
   {
@@ -86,8 +86,8 @@
     "T": 100,
     "seed": 6,
     "coop_rate_i": 1.0,
-    "coop_rate_j": 1.0,
-    "freq_CC": 1.0,
+    "coop_rate_j": 0.97,
+    "freq_CC": 0.97,
     "freq_DD": 0.0
   },
   {
@@ -98,9 +98,9 @@
     "beta": 4.0,
     "T": 100,
     "seed": 7,
-    "coop_rate_i": 1.0,
+    "coop_rate_i": 0.99,
     "coop_rate_j": 1.0,
-    "freq_CC": 1.0,
+    "freq_CC": 0.99,
     "freq_DD": 0.0
   },
   {
@@ -111,9 +111,9 @@
     "beta": 4.0,
     "T": 100,
     "seed": 8,
-    "coop_rate_i": 1.0,
-    "coop_rate_j": 1.0,
-    "freq_CC": 1.0,
+    "coop_rate_i": 0.99,
+    "coop_rate_j": 0.99,
+    "freq_CC": 0.98,
     "freq_DD": 0.0
   },
   {
@@ -150,9 +150,9 @@
     "beta": 4.0,
     "T": 100,
     "seed": 11,
-    "coop_rate_i": 1.0,
+    "coop_rate_i": 0.99,
     "coop_rate_j": 1.0,
-    "freq_CC": 1.0,
+    "freq_CC": 0.99,
     "freq_DD": 0.0
   },
   {
@@ -163,9 +163,9 @@
     "beta": 4.0,
     "T": 100,
     "seed": 12,
-    "coop_rate_i": 1.0,
-    "coop_rate_j": 1.0,
-    "freq_CC": 1.0,
+    "coop_rate_i": 0.99,
+    "coop_rate_j": 0.98,
+    "freq_CC": 0.97,
     "freq_DD": 0.0
   },
   {
@@ -177,8 +177,8 @@
     "T": 100,
     "seed": 13,
     "coop_rate_i": 1.0,
-    "coop_rate_j": 1.0,
-    "freq_CC": 1.0,
+    "coop_rate_j": 0.99,
+    "freq_CC": 0.99,
     "freq_DD": 0.0
   },
   {
@@ -189,9 +189,9 @@
     "beta": 4.0,
     "T": 100,
     "seed": 14,
-    "coop_rate_i": 1.0,
-    "coop_rate_j": 1.0,
-    "freq_CC": 1.0,
+    "coop_rate_i": 0.99,
+    "coop_rate_j": 0.96,
+    "freq_CC": 0.95,
     "freq_DD": 0.0
   },
   {
@@ -202,9 +202,9 @@
     "beta": 4.0,
     "T": 100,
     "seed": 15,
-    "coop_rate_i": 1.0,
+    "coop_rate_i": 0.98,
     "coop_rate_j": 1.0,
-    "freq_CC": 1.0,
+    "freq_CC": 0.98,
     "freq_DD": 0.0
   },
   {
@@ -241,9 +241,9 @@
     "beta": 4.0,
     "T": 100,
     "seed": 18,
-    "coop_rate_i": 1.0,
-    "coop_rate_j": 1.0,
-    "freq_CC": 1.0,
+    "coop_rate_i": 0.96,
+    "coop_rate_j": 0.98,
+    "freq_CC": 0.94,
     "freq_DD": 0.0
   },
   {
@@ -254,9 +254,9 @@
     "beta": 4.0,
     "T": 100,
     "seed": 19,
-    "coop_rate_i": 1.0,
-    "coop_rate_j": 1.0,
-    "freq_CC": 1.0,
+    "coop_rate_i": 0.99,
+    "coop_rate_j": 0.99,
+    "freq_CC": 0.98,
     "freq_DD": 0.0
   },
   {
@@ -267,10 +267,10 @@
     "beta": 4.0,
     "T": 100,
     "seed": 0,
-    "coop_rate_i": 0.010000000000000009,
-    "coop_rate_j": 0.010000000000000009,
+    "coop_rate_i": 0.0,
+    "coop_rate_j": 0.0,
     "freq_CC": 0.0,
-    "freq_DD": 0.98
+    "freq_DD": 1.0
   },
   {
     "w_self": 1.0,
@@ -280,10 +280,10 @@
     "beta": 4.0,
     "T": 100,
     "seed": 1,
-    "coop_rate_i": 0.040000000000000036,
-    "coop_rate_j": 0.010000000000000009,
+    "coop_rate_i": 0.010000000000000009,
+    "coop_rate_j": 0.0,
     "freq_CC": 0.0,
-    "freq_DD": 0.95
+    "freq_DD": 0.99
   },
   {
     "w_self": 1.0,
@@ -293,10 +293,10 @@
     "beta": 4.0,
     "T": 100,
     "seed": 2,
-    "coop_rate_i": 0.020000000000000018,
-    "coop_rate_j": 0.010000000000000009,
+    "coop_rate_i": 0.0,
+    "coop_rate_j": 0.0,
     "freq_CC": 0.0,
-    "freq_DD": 0.97
+    "freq_DD": 1.0
   },
   {
     "w_self": 1.0,
@@ -319,10 +319,10 @@
     "beta": 4.0,
     "T": 100,
     "seed": 4,
-    "coop_rate_i": 0.030000000000000027,
-    "coop_rate_j": 0.010000000000000009,
+    "coop_rate_i": 0.0,
+    "coop_rate_j": 0.0,
     "freq_CC": 0.0,
-    "freq_DD": 0.96
+    "freq_DD": 1.0
   },
   {
     "w_self": 1.0,
@@ -332,10 +332,10 @@
     "beta": 4.0,
     "T": 100,
     "seed": 5,
-    "coop_rate_i": 0.020000000000000018,
-    "coop_rate_j": 0.020000000000000018,
+    "coop_rate_i": 0.0,
+    "coop_rate_j": 0.0,
     "freq_CC": 0.0,
-    "freq_DD": 0.96
+    "freq_DD": 1.0
   },
   {
     "w_self": 1.0,
@@ -345,10 +345,10 @@
     "beta": 4.0,
     "T": 100,
     "seed": 6,
-    "coop_rate_i": 0.030000000000000027,
-    "coop_rate_j": 0.010000000000000009,
+    "coop_rate_i": 0.0,
+    "coop_rate_j": 0.0,
     "freq_CC": 0.0,
-    "freq_DD": 0.96
+    "freq_DD": 1.0
   },
   {
     "w_self": 1.0,
@@ -358,10 +358,10 @@
     "beta": 4.0,
     "T": 100,
     "seed": 7,
-    "coop_rate_i": 0.030000000000000027,
-    "coop_rate_j": 0.010000000000000009,
+    "coop_rate_i": 0.0,
+    "coop_rate_j": 0.0,
     "freq_CC": 0.0,
-    "freq_DD": 0.96
+    "freq_DD": 1.0
   },
   {
     "w_self": 1.0,
@@ -371,10 +371,10 @@
     "beta": 4.0,
     "T": 100,
     "seed": 8,
-    "coop_rate_i": 0.030000000000000027,
-    "coop_rate_j": 0.020000000000000018,
+    "coop_rate_i": 0.0,
+    "coop_rate_j": 0.0,
     "freq_CC": 0.0,
-    "freq_DD": 0.95
+    "freq_DD": 1.0
   },
   {
     "w_self": 1.0,
@@ -397,10 +397,10 @@
     "beta": 4.0,
     "T": 100,
     "seed": 10,
-    "coop_rate_i": 0.020000000000000018,
-    "coop_rate_j": 0.010000000000000009,
+    "coop_rate_i": 0.0,
+    "coop_rate_j": 0.0,
     "freq_CC": 0.0,
-    "freq_DD": 0.97
+    "freq_DD": 1.0
   },
   {
     "w_self": 1.0,
@@ -410,6 +410,32 @@
     "beta": 4.0,
     "T": 100,
     "seed": 11,
+    "coop_rate_i": 0.0,
+    "coop_rate_j": 0.0,
+    "freq_CC": 0.0,
+    "freq_DD": 1.0
+  },
+  {
+    "w_self": 1.0,
+    "w_other": 0.0,
+    "scale": 1.0,
+    "ratio": 0.0,
+    "beta": 4.0,
+    "T": 100,
+    "seed": 12,
+    "coop_rate_i": 0.0,
+    "coop_rate_j": 0.0,
+    "freq_CC": 0.0,
+    "freq_DD": 1.0
+  },
+  {
+    "w_self": 1.0,
+    "w_other": 0.0,
+    "scale": 1.0,
+    "ratio": 0.0,
+    "beta": 4.0,
+    "T": 100,
+    "seed": 13,
     "coop_rate_i": 0.010000000000000009,
     "coop_rate_j": 0.0,
     "freq_CC": 0.0,
@@ -422,37 +448,11 @@
     "ratio": 0.0,
     "beta": 4.0,
     "T": 100,
-    "seed": 12,
-    "coop_rate_i": 0.050000000000000044,
-    "coop_rate_j": 0.020000000000000018,
-    "freq_CC": 0.0,
-    "freq_DD": 0.93
-  },
-  {
-    "w_self": 1.0,
-    "w_other": 0.0,
-    "scale": 1.0,
-    "ratio": 0.0,
-    "beta": 4.0,
-    "T": 100,
-    "seed": 13,
-    "coop_rate_i": 0.050000000000000044,
+    "seed": 14,
+    "coop_rate_i": 0.0,
     "coop_rate_j": 0.0,
     "freq_CC": 0.0,
-    "freq_DD": 0.95
-  },
-  {
-    "w_self": 1.0,
-    "w_other": 0.0,
-    "scale": 1.0,
-    "ratio": 0.0,
-    "beta": 4.0,
-    "T": 100,
-    "seed": 14,
-    "coop_rate_i": 0.010000000000000009,
-    "coop_rate_j": 0.020000000000000018,
-    "freq_CC": 0.0,
-    "freq_DD": 0.97
+    "freq_DD": 1.0
   },
   {
     "w_self": 1.0,
@@ -462,10 +462,10 @@
     "beta": 4.0,
     "T": 100,
     "seed": 15,
-    "coop_rate_i": 0.030000000000000027,
-    "coop_rate_j": 0.010000000000000009,
+    "coop_rate_i": 0.0,
+    "coop_rate_j": 0.0,
     "freq_CC": 0.0,
-    "freq_DD": 0.96
+    "freq_DD": 1.0
   },
   {
     "w_self": 1.0,
@@ -475,10 +475,10 @@
     "beta": 4.0,
     "T": 100,
     "seed": 16,
-    "coop_rate_i": 0.030000000000000027,
-    "coop_rate_j": 0.020000000000000018,
+    "coop_rate_i": 0.0,
+    "coop_rate_j": 0.0,
     "freq_CC": 0.0,
-    "freq_DD": 0.95
+    "freq_DD": 1.0
   },
   {
     "w_self": 1.0,
@@ -489,9 +489,9 @@
     "T": 100,
     "seed": 17,
     "coop_rate_i": 0.0,
-    "coop_rate_j": 0.030000000000000027,
+    "coop_rate_j": 0.0,
     "freq_CC": 0.0,
-    "freq_DD": 0.97
+    "freq_DD": 1.0
   },
   {
     "w_self": 1.0,
@@ -501,10 +501,10 @@
     "beta": 4.0,
     "T": 100,
     "seed": 18,
-    "coop_rate_i": 0.020000000000000018,
-    "coop_rate_j": 0.040000000000000036,
+    "coop_rate_i": 0.0,
+    "coop_rate_j": 0.0,
     "freq_CC": 0.0,
-    "freq_DD": 0.94
+    "freq_DD": 1.0
   },
   {
     "w_self": 1.0,
@@ -514,10 +514,10 @@
     "beta": 4.0,
     "T": 100,
     "seed": 19,
-    "coop_rate_i": 0.020000000000000018,
+    "coop_rate_i": 0.0,
     "coop_rate_j": 0.0,
     "freq_CC": 0.0,
-    "freq_DD": 0.98
+    "freq_DD": 1.0
   },
   {
     "w_self": 0.6,
@@ -540,10 +540,10 @@
     "beta": 4.0,
     "T": 100,
     "seed": 1,
-    "coop_rate_i": 0.010000000000000009,
+    "coop_rate_i": 0.0,
     "coop_rate_j": 0.0,
     "freq_CC": 0.0,
-    "freq_DD": 0.99
+    "freq_DD": 1.0
   },
   {
     "w_self": 0.6,
