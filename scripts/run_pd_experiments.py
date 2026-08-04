@@ -50,6 +50,11 @@ class RunResult:
     # Parameters
     lambda_i: float
     lambda_j: float
+    actions_i: np.ndarray
+    actions_j: np.ndarray
+    payoffs_i: np.ndarray
+    payoffs_j: np.ndarray
+    outcomes: list
     beta_i: float
     beta_j: float
     use_tom: bool
@@ -87,7 +92,9 @@ def create_pd_config(T: int = 50) -> dict:
 
     # Agent 0 matrices
     A_k0 = obj_array(num_modalities)
-    A_k0[0] = np.eye(num_obs_categories)
+    A_k0[0] = np.eye(num_obs_categories) + np.random.randn(num_obs_categories, num_obs_categories) * 0.01  # Add small noise
+    # Normalize A_k0 to ensure valid probability distributions
+    A_k0[0] /= A_k0[0].sum(axis=0, keepdims=True)
 
     B_k0 = obj_array(num_factors)
     B_k0[0] = np.zeros((4, 4, 2))
@@ -100,10 +107,19 @@ def create_pd_config(T: int = 50) -> dict:
     C_k0[0] = np.array([3, 1, 4, 2])  # Payoffs: CC=3, CD=1, DC=4, DD=2
 
     D_k0 = obj_array_uniform([num_state_categories])
+    print(D_k0)
+    eps = 0.2
+    D_k0 = obj_array(num_modalities)
+    D_k0[0] = np.full(num_state_categories, eps/(num_state_categories-1))
+    print(D_k0)
+    D_k0[0][0] = 1 - eps
+    print(D_k0)
 
     # Agent 1 matrices
     A_k1 = obj_array(num_modalities)
-    A_k1[0] = np.eye(num_obs_categories)
+    A_k1[0] = np.eye(num_obs_categories) + np.random.randn(num_obs_categories, num_obs_categories) * 0.01  # Add small noise
+    # Normalize A_k1 to ensure valid probability distributions
+    A_k1[0] /= A_k1[0].sum(axis=0, keepdims=True)
 
     B_k1 = obj_array(num_factors)
     B_k1[0] = np.zeros((4, 4, 2))
@@ -149,9 +165,10 @@ def run_single_experiment(
     beta_i: float = 4.0,
     beta_j: float = 4.0,
     use_tom: bool = True,
-    use_inversion: bool = False,
+    use_inversion: bool = True,
     T: int = 50,
     seed: int = 42,
+    defect_interval: tuple = (400, -2000),
 ) -> RunResult:
     """Run a single PD experiment with specified parameters."""
     np.random.seed(seed)
@@ -165,12 +182,16 @@ def run_single_experiment(
         agent_num=0,
         empathy_factor=lambda_i,
         use_inversion=use_inversion,
+        beta_self=beta_i,
+        beta_other=beta_j
     )
     agent_j = ToMEmpatheticAgent(
         config=config,
         agent_num=1,
         empathy_factor=lambda_j,
         use_inversion=use_inversion,
+        beta_self=beta_j,
+        beta_other=beta_i
     )
 
     # Run simulation
@@ -192,7 +213,12 @@ def run_single_experiment(
         results_j = agent_j.step(t=t, observation=obs_j)
 
         a_i = results_i["exp_action"]
+        
         a_j = results_j["exp_action"]
+        # if t > defect_interval[0] and t < defect_interval[1]:
+        #     a_j = 1  # Force defection after 20 steps to test exploitation
+        #     agent_j.last_action = a_j  # Update last action to reflect forced defection
+        #     agent_j.action_history[-1] = a_j  # Update action history for correct state transitions
 
         actions_i.append(a_i)
         actions_j.append(a_j)
@@ -210,14 +236,20 @@ def run_single_experiment(
 
     # Outcome frequencies
     outcomes = []
+    outcomes_num = []
     for ai, aj in zip(actions_i, actions_j):
         if ai == 0 and aj == 0:
             outcomes.append("CC")
+            outcomes_num.append(0)
         elif ai == 0 and aj == 1:
             outcomes.append("CD")
+            outcomes_num.append(1)
         elif ai == 1 and aj == 0:
             outcomes.append("DC")
+            outcomes_num.append(2)
         else:
+            outcomes.append("DD")
+            outcomes_num.append(3)
             outcomes.append("DD")
 
     freq_CC = outcomes.count("CC") / len(outcomes)
@@ -245,6 +277,11 @@ def run_single_experiment(
     return RunResult(
         lambda_i=lambda_i,
         lambda_j=lambda_j,
+        actions_i=actions_i,
+        actions_j=actions_j,
+        payoffs_i=payoffs_i,
+        payoffs_j=payoffs_j,
+        outcomes = outcomes_num,
         beta_i=beta_i,
         beta_j=beta_j,
         use_tom=use_tom,
