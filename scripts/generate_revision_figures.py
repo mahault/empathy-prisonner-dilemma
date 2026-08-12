@@ -171,12 +171,16 @@ def fig_payoff_horizon(out_dir):
     axes[0].set_ylabel("Mutual cooperation frequency", fontsize=12)
     axes[0].legend(fontsize=10, loc="lower left", frameon=True)
 
-    # flag the two rows that coincide (empathy rescales the temptation margin)
-    axes[0].annotate("$\\lambda=0.3$ here matches\n$\\lambda=0.5$ under weak temptation",
-                     xy=(2, 0.66), xytext=(2.15, 0.30), fontsize=8.5, color=GREY,
+    # Planning depth only bites near the transition. Above threshold the
+    # rows are saturated and horizon is inert, so the annotations point at
+    # the lambda=0.3 curves rather than at the old (pre-correction)
+    # coincidence between standard lambda=0.3 and weak-temptation lambda=0.5,
+    # which the opponent-inference model no longer produces.
+    axes[0].annotate("erosion confined to $\\lambda=0.3$;\nsaturated rows are flat",
+                     xy=(3, 0.141), xytext=(1.75, 0.42), fontsize=8.5, color=GREY,
                      arrowprops=dict(arrowstyle="->", color=GREY, lw=1))
-    axes[1].annotate("no erosion:\ncooperation already collapsed",
-                     xy=(3, 0.19), xytext=(1.6, 0.42), fontsize=8.5, color=GREY,
+    axes[1].annotate("direction reverses at $\\lambda=0.3$:\ndeeper planning helps slightly",
+                     xy=(3, 0.196), xytext=(1.5, 0.46), fontsize=8.5, color=GREY,
                      arrowprops=dict(arrowstyle="->", color=GREY, lw=1))
 
     fig.tight_layout()
