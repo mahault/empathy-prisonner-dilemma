@@ -317,16 +317,27 @@ def _print_comparison_summary(results: list):
 def run_horizon(T: int, n_seeds: int, out_dir: Path,
                 horizons=(1, 2, 3, 4), lambdas=(0.3, 0.5, 0.7),
                 protocol: str = "paper") -> list:
-    """protocol="paper" reproduces the exact Table 2 / Fig 7 setup of the
-    manuscript, verified to give CC = 0.782/0.657/0.597 at lambda=0.3,
-    H=1/2/3 under the standard payoffs (seeds 0-19, T=100):
+    """protocol="paper" keeps the Table 2 / Fig 7 pairing of the manuscript:
       - the sophisticated agent is paired with a MYOPIC partner of equal
         lambda (generate_sophisticated_figure.py only passes the horizon to
         agent i),
-      - legacy state-inference C matrices (3,1,4,2),
       - metric: mutual cooperation frequency (freq_CC).
-    protocol="symmetric" gives both agents the same horizon and aligns the
-    C matrices with the decision payoffs (the earlier referee-sweep setup).
+    protocol="symmetric" gives both agents the same horizon (the earlier
+    referee-sweep setup).
+
+    Opponent inversion is ON for both agents. It used to be off here, to
+    match generate_sophisticated_figure.py. That was safe only under the
+    pre-correction static ToM, which predicted an unconditional defector
+    and still left CC = 0.782 at lambda=0.3 to modulate. Under the
+    corrected model an agent with inversion off cooperates on 1.7% of
+    rounds, so every cell of the sweep sits on the floor and the horizon
+    contrast vanishes into noise. With inversion on, H=1 at lambda=0.3
+    reproduces PAPER_NUMBERS section 5a (0.207) and the payoff-dependent
+    horizon effect is measurable again.
+
+    Note: run_pair's legacy_C flag is inert under the corrected model -
+    legacy_C True and False give identical results - so the C-matrix
+    variant is no longer what distinguishes these protocols.
     """
     print("=" * 70)
     print(f"ANALYSIS 2: planning-horizon robustness (protocol={protocol})")
@@ -342,13 +353,13 @@ def run_horizon(T: int, n_seeds: int, out_dir: Path,
     for idx, (pname, H, lam) in enumerate(grid):
         kwargs_i = dict(
             empathy_factor=lam,
-            use_inversion=False,          # matches generate_sophisticated_figure.py
+            use_inversion=True,           # see docstring: off floors the sweep
             use_sophisticated=(H > 1),
             planning_horizon=H,
         )
         if paper:
             # partner is always myopic, exactly as in the published figure
-            kwargs_j = dict(empathy_factor=lam, use_inversion=False)
+            kwargs_j = dict(empathy_factor=lam, use_inversion=True)
         else:
             kwargs_j = dict(kwargs_i)
         for seed in range(n_seeds):
